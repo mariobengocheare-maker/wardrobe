@@ -3,3 +3,8 @@ wardrobe.db
 
 __pycache__/
 *.pyc
+
+# Home-page theme music — plays locally, kept out of the public repo/ZIP
+# (drop your own audio file here as static/theme.mp3)
+static/theme.mp3
+*.mp3

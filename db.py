@@ -23,10 +23,12 @@ CREATE TABLE IF NOT EXISTS items (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     name        TEXT NOT NULL,
     category    TEXT NOT NULL DEFAULT '',
+    piece_type  TEXT NOT NULL DEFAULT '',
     color       TEXT NOT NULL DEFAULT '',
     color_hex   TEXT NOT NULL DEFAULT '',
     brand       TEXT NOT NULL DEFAULT '',
     material    TEXT NOT NULL DEFAULT '',
+    image_url   TEXT NOT NULL DEFAULT '',
     temp_min    INTEGER,
     temp_max    INTEGER,
     notes       TEXT NOT NULL DEFAULT '',
@@ -63,6 +65,7 @@ CREATE TABLE IF NOT EXISTS outfit_items (
 def init_db():
     conn = get_conn()
     conn.executescript(SCHEMA)
+    _migrate(conn)
     conn.commit()
     # Seed only if the wardrobe is empty.
     if conn.execute("SELECT COUNT(*) AS c FROM items").fetchone()["c"] == 0:
@@ -70,24 +73,35 @@ def init_db():
     conn.close()
 
 
+def _migrate(conn):
+    """Add newer columns to wardrobes created before they existed."""
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(items)")}
+    if "piece_type" not in cols:
+        conn.execute("ALTER TABLE items ADD COLUMN piece_type TEXT NOT NULL DEFAULT ''")
+    if "image_url" not in cols:
+        conn.execute("ALTER TABLE items ADD COLUMN image_url TEXT NOT NULL DEFAULT ''")
+    conn.commit()
+
+
 # --- Seed data -----------------------------------------------------------
 
 # Starting wardrobe. color_hex is an approximate swatch for the UI.
 SEED_ITEMS = [
-    # name, category, color, color_hex, brand, material, temp_min, temp_max, notes
-    ("Grey Slacks", "Pants", "Grey", "#8a8d91", "", "", 60, 78, ""),
-    ("Khaki Slacks", "Pants", "Khaki", "#c3a877", "", "", 62, 82, ""),
-    ("Long Sleeve Polo — Dark Green", "Long Sleeve Polo", "Dark Green",
+    # name, category, piece_type, color, color_hex, brand, material,
+    #   temp_min, temp_max, notes
+    ("Grey Slacks", "Slacks", "Bottom", "Grey", "#8a8d91", "", "", 60, 78, ""),
+    ("Khaki Slacks", "Slacks", "Bottom", "Khaki", "#c3a877", "", "", 62, 82, ""),
+    ("Long Sleeve Polo — Dark Green", "Long Sleeve Polo", "Top", "Dark Green",
      "#1f4d34", "Ralph Lauren", "", 60, 74, ""),
-    ("Long Sleeve Polo — Light Green", "Long Sleeve Polo", "Light Green",
+    ("Long Sleeve Polo — Light Green", "Long Sleeve Polo", "Top", "Light Green",
      "#5a8f5f", "Ralph Lauren", "", 60, 74, ""),
-    ("Long Sleeve Polo — Cream", "Long Sleeve Polo", "Cream",
+    ("Long Sleeve Polo — Cream", "Long Sleeve Polo", "Top", "Cream",
      "#efe6cf", "Ralph Lauren", "", 60, 74, ""),
-    ("Long Sleeve Polo — Blue", "Long Sleeve Polo", "Blue",
+    ("Long Sleeve Polo — Blue", "Long Sleeve Polo", "Top", "Blue",
      "#3a6ea5", "Ralph Lauren", "", 60, 74, ""),
-    ("Quarter Zip — Light Red", "Quarter Zip", "Light Red",
+    ("Quarter Zip — Light Red", "Quarter Zip", "Top", "Light Red",
      "#d1595c", "Ralph Lauren", "", 55, 70, ""),
-    ("Long Sleeve Polo Shirt — Dark Wine Red", "Long Sleeve Polo",
+    ("Long Sleeve Polo Shirt — Dark Wine Red", "Long Sleeve Polo", "Top",
      "Dark Wine Red", "#6e2233", "J.Crew", "", 58, 72, ""),
 ]
 
@@ -106,9 +120,9 @@ def _seed(conn):
     for row in SEED_ITEMS:
         cur = conn.execute(
             """INSERT INTO items
-               (name, category, color, color_hex, brand, material,
+               (name, category, piece_type, color, color_hex, brand, material,
                 temp_min, temp_max, notes)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             row,
         )
         ids[row[0]] = cur.lastrowid
@@ -152,16 +166,18 @@ def add_item(data):
     conn = get_conn()
     cur = conn.execute(
         """INSERT INTO items
-           (name, category, color, color_hex, brand, material,
-            temp_min, temp_max, notes)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           (name, category, piece_type, color, color_hex, brand, material,
+            image_url, temp_min, temp_max, notes)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             data.get("name", "").strip(),
             data.get("category", "").strip(),
+            data.get("piece_type", "").strip(),
             data.get("color", "").strip(),
             data.get("color_hex", "").strip(),
             data.get("brand", "").strip(),
             data.get("material", "").strip(),
+            (data.get("image_url") or "").strip(),
             _int_or_none(data.get("temp_min")),
             _int_or_none(data.get("temp_max")),
             data.get("notes", "").strip(),
@@ -177,16 +193,19 @@ def update_item(item_id, data):
     conn = get_conn()
     conn.execute(
         """UPDATE items SET
-             name = ?, category = ?, color = ?, color_hex = ?, brand = ?,
-             material = ?, temp_min = ?, temp_max = ?, notes = ?
+             name = ?, category = ?, piece_type = ?, color = ?, color_hex = ?,
+             brand = ?, material = ?, image_url = ?, temp_min = ?, temp_max = ?,
+             notes = ?
            WHERE id = ?""",
         (
             data.get("name", "").strip(),
             data.get("category", "").strip(),
+            data.get("piece_type", "").strip(),
             data.get("color", "").strip(),
             data.get("color_hex", "").strip(),
             data.get("brand", "").strip(),
             data.get("material", "").strip(),
+            (data.get("image_url") or "").strip(),
             _int_or_none(data.get("temp_min")),
             _int_or_none(data.get("temp_max")),
             data.get("notes", "").strip(),
