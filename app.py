@@ -7,6 +7,7 @@ Then open: http://localhost:5000
 from flask import Flask, jsonify, render_template, request
 
 import db
+import imageproc
 
 app = Flask(__name__)
 
@@ -14,6 +15,21 @@ app = Flask(__name__)
 @app.route("/")
 def index():
     return render_template("index.html")
+
+
+# --- Image standardisation ----------------------------------------------
+
+@app.route("/api/process-image", methods=["POST"])
+def process_image():
+    """Knock out the background and fit the photo to a standard canvas."""
+    data = request.get_json(force=True)
+    src = data.get("image", "")
+    remove_bg = data.get("remove_bg", True)
+    try:
+        out = imageproc.standardize(src, remove_bg=remove_bg)
+        return jsonify({"image": out, "ok": True})
+    except Exception as exc:  # never block a save on a bad photo
+        return jsonify({"image": src, "ok": False, "error": str(exc)})
 
 
 # --- Items ---------------------------------------------------------------

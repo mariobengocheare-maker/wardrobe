@@ -127,8 +127,9 @@
     transition:transform .18s, box-shadow .18s;
   }
   .card:hover{transform:translateY(-4px); box-shadow:var(--shadow);}
-  .photo-wrap{position:relative; height:250px; background:#f1ece1; overflow:hidden; cursor:zoom-in;}
-  .photo-wrap img{width:100%; height:100%; object-fit:cover; display:block;}
+  .photo-wrap{position:relative; height:250px; overflow:hidden; cursor:zoom-in;
+    background:radial-gradient(120% 90% at 50% 12%, #fffefb 0%, #f0eadd 62%, #e6decd 100%);}
+  .photo-wrap img{width:100%; height:100%; object-fit:contain; display:block; padding:14px;}
   .photo-wrap .noimg{
     position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
     gap:8px; color:var(--muted); cursor:pointer;
@@ -182,7 +183,13 @@
     width:120px; height:150px; border-radius:12px; border:1px solid var(--line); background:#f1ece1;
     overflow:hidden; flex:none; display:flex; align-items:center; justify-content:center; color:var(--muted); font-size:11px; text-align:center; letter-spacing:.1em; text-transform:uppercase;
   }
-  .imgpick .preview img{width:100%; height:100%; object-fit:cover;}
+  .imgpick .preview img{width:100%; height:100%; object-fit:contain;}
+  .imgpick .preview.checker{
+    background-color:#f7f4ee;
+    background-image:linear-gradient(45deg,#e6ded0 25%,transparent 25%),linear-gradient(-45deg,#e6ded0 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#e6ded0 75%),linear-gradient(-45deg,transparent 75%,#e6ded0 75%);
+    background-size:16px 16px; background-position:0 0,0 8px,8px -8px,-8px 0px;
+  }
+  .imgpick .preview.busy{opacity:.6;}
   .imgpick .controls{flex:1;}
   .filebtn{display:inline-block; cursor:pointer; background:var(--ink-deep); color:#f2e9d5; padding:10px 16px; border-radius:999px; font-size:12px; letter-spacing:.12em; text-transform:uppercase;}
   .filebtn input{display:none;}
@@ -231,6 +238,22 @@
   .lb-info{padding:30px 32px; position:relative;}
   .lb-info h3{margin:0 0 6px; font-size:28px;}
   .lb-close{position:absolute; top:16px; right:16px; width:36px; height:36px; border-radius:50%; border:1px solid var(--line); background:#fff; cursor:pointer; font-size:15px;}
+
+  /* ---------- outfit composition ---------- */
+  .outfit-view-back{position:fixed; inset:0; background:rgba(20,16,10,.6); backdrop-filter:blur(4px); display:none; align-items:center; justify-content:center; padding:26px; z-index:80;}
+  .outfit-view-back.open{display:flex;}
+  .outfit-view{width:min(460px,94vw); max-height:92vh; background:var(--panel); border:1px solid var(--line); border-radius:20px; box-shadow:var(--shadow); overflow:hidden; display:flex; flex-direction:column;}
+  .ov-head{display:flex; align-items:center; justify-content:space-between; padding:18px 22px 6px;}
+  .ov-head h3{margin:0; font-size:22px;}
+  .ov-close{width:34px; height:34px; border-radius:50%; border:1px solid var(--line); background:#fff; cursor:pointer; font-size:14px;}
+  .ov-stage{flex:1; overflow:auto; padding:6px 22px 10px; display:flex; flex-direction:column; align-items:center;
+    background:radial-gradient(120% 70% at 50% 8%, #fffefb 0%, #f0eadd 60%, #e6decd 100%);}
+  .ov-layer{width:78%; max-width:300px; display:flex; align-items:center; justify-content:center;}
+  .ov-layer img{width:100%; object-fit:contain; filter:drop-shadow(0 12px 18px rgba(60,45,25,.18));}
+  .ov-layer.top{z-index:2;}
+  .ov-layer.bottom{margin-top:-26px; z-index:1;}
+  .ov-layer .flat{width:100%; height:150px; border-radius:12px; display:flex; align-items:center; justify-content:center; color:#fff; font-size:12px; letter-spacing:.1em; text-transform:uppercase; box-shadow:var(--shadow-sm);}
+  .ov-foot{padding:12px 22px 20px; color:var(--muted); font-size:12px; text-align:center;}
 </style>
 </head>
 <body>
@@ -312,7 +335,8 @@
         <div class="fit-strip" id="fitStrip"></div>
         <div id="fitTemp"></div>
         <div class="fit-actions">
-          <button class="btn gold" id="saveFitBtn" onclick="openSaveFit()" style="display:none">Save Outfit</button>
+          <button class="btn gold" id="previewFitBtn" onclick="previewFit()" style="display:none">Preview Outfit</button>
+          <button class="btn" id="saveFitBtn" onclick="openSaveFit()" style="display:none">Save Outfit</button>
           <button class="link" id="clearFitBtn" onclick="clearFit()" style="display:none">Clear</button>
         </div>
       </aside>
@@ -328,15 +352,18 @@
     <input type="hidden" id="f_image_url">
     <div class="field"><label>Photo of the piece</label>
       <div class="imgpick">
-        <div class="preview" id="f_preview">No photo</div>
+        <div class="preview checker" id="f_preview">No photo</div>
         <div class="controls">
           <label class="filebtn">Upload a photo
             <input type="file" id="f_image_file" accept="image/*"></label>
-          <div class="field" style="margin:12px 0 0">
+          <label style="display:flex; align-items:center; gap:8px; margin-top:12px; font-size:12px; color:var(--muted); text-transform:none; letter-spacing:0; cursor:pointer">
+            <input type="checkbox" id="f_remove_bg" checked style="width:auto"> Clean up &amp; remove background
+          </label>
+          <div class="field" style="margin:10px 0 0">
             <label>…or paste an image URL</label>
             <input id="f_image_link" placeholder="https://…/photo.jpg">
           </div>
-          <div class="hint">Use a real photo of your own garment for the truest look, or paste a product image link. <button type="button" class="link" style="padding:0" onclick="clearImage()">Remove photo</button></div>
+          <div class="hint" id="f_img_hint">Upload a photo of your garment — I'll knock out the background and size it to match everything else. Works best on a plain background. <button type="button" class="link" style="padding:0" onclick="clearImage()">Remove photo</button></div>
         </div>
       </div>
     </div>
@@ -425,6 +452,15 @@
       <button class="lb-close" onclick="closeLightbox()">✕</button>
       <div id="lb_body"></div>
     </div>
+  </div>
+</div>
+
+<!-- OUTFIT VIEW (top stacked over bottom) -->
+<div class="outfit-view-back" id="outfitView">
+  <div class="outfit-view">
+    <div class="ov-head"><h3 id="ov_title">Outfit</h3><button class="ov-close" onclick="closeOutfitView()">✕</button></div>
+    <div class="ov-stage" id="ov_stage"></div>
+    <div class="ov-foot" id="ov_foot"></div>
   </div>
 </div>
 
@@ -588,20 +624,64 @@ function openLightbox(id){
 function closeLightbox(){ $('lightbox').classList.remove('open'); }
 $('lightbox').addEventListener('click', e=>{ if(e.target.id==='lightbox') closeLightbox(); });
 
+// --- outfit composition: top stacked over bottom ---
+function ovLayer(i, cls){
+  const inner = i.image_url
+    ? `<img src="${esc(i.image_url)}" alt="${esc(i.name)}">`
+    : `<div class="flat" style="background:${i.color_hex||'#bbb'}">${esc(i.name)}</div>`;
+  return `<div class="ov-layer ${cls}">${inner}</div>`;
+}
+function openOutfitView(items, title){
+  const tops = items.filter(i=>typeOf(i)==='Top');
+  const bottoms = items.filter(i=>typeOf(i)==='Bottom');
+  const others = items.filter(i=>typeOf(i)!=='Top' && typeOf(i)!=='Bottom');
+  const layers = [...tops.map(i=>ovLayer(i,'top')), ...others.map(i=>ovLayer(i,'top')), ...bottoms.map(i=>ovLayer(i,'bottom'))].join('');
+  $('ov_title').textContent = title || 'Outfit';
+  $('ov_stage').innerHTML = layers || '<div class="meta" style="padding:40px">No pieces.</div>';
+  const missing = items.filter(i=>!i.image_url).length;
+  $('ov_foot').textContent = missing
+    ? `${missing} piece${missing>1?'s':''} without a photo shown as a colour block — add photos to complete the look.`
+    : 'Top stacked over bottom.';
+  $('outfitView').classList.add('open');
+}
+function closeOutfitView(){ $('outfitView').classList.remove('open'); }
+$('outfitView').addEventListener('click', e=>{ if(e.target.id==='outfitView') closeOutfitView(); });
+function previewFit(){ const c = ITEMS.filter(i=>selectedFit.has(i.id)); if(c.length) openOutfitView(c, c.map(i=>i.color||i.name).join(' + ')); }
+function viewOutfit(outfitId, collId){
+  const coll = COLLECTIONS.find(c=>c.id===collId);
+  const o = coll && coll.outfits.find(x=>x.id===outfitId);
+  if(o) openOutfitView(o.items, o.name || 'Outfit');
+}
+
 // --- item modal + image picker ---
 function setPreview(url){
   $('f_preview').innerHTML = url ? `<img src="${esc(url)}">` : 'No photo';
 }
-function clearImage(){ $('f_image_url').value=''; $('f_image_link').value=''; setPreview(''); }
+function clearImage(){ $('f_image_url').value=''; $('f_image_link').value=''; $('f_image_file').value=''; setPreview(''); }
+async function processImage(dataUrl){
+  // Ask the server to knock out the background + standardise the size.
+  try{
+    const r = await api('/api/process-image','POST',{image:dataUrl, remove_bg:$('f_remove_bg').checked});
+    return (r && r.image) ? r.image : dataUrl;
+  }catch(e){ return dataUrl; }
+}
 $('f_image_file').addEventListener('change', e=>{
   const f = e.target.files[0]; if(!f) return;
   const rd = new FileReader();
-  rd.onload = ()=>{ $('f_image_url').value = rd.result; setPreview(rd.result); };
+  rd.onload = async ()=>{
+    $('f_preview').classList.add('busy'); setPreview(rd.result);
+    $('f_img_hint').dataset.saved = $('f_img_hint').dataset.saved || $('f_img_hint').innerHTML;
+    $('f_img_hint').textContent = 'Cleaning up the photo…';
+    const out = await processImage(rd.result);
+    $('f_image_url').value = out; $('f_image_link').value = '';
+    setPreview(out); $('f_preview').classList.remove('busy');
+    $('f_img_hint').innerHTML = $('f_img_hint').dataset.saved;
+  };
   rd.readAsDataURL(f);
 });
 $('f_image_link').addEventListener('input', e=>{
   const v = e.target.value.trim();
-  $('f_image_url').value = v; setPreview(v);
+  $('f_image_url').value = v; setPreview(v);   // pasted URLs are shown as-is
 });
 function openItemModal(id){
   const editing = ITEMS.find(x=>x.id===id);
@@ -621,6 +701,7 @@ function openItemModal(id){
   $('f_image_url').value = img;
   $('f_image_link').value = (img && !img.startsWith('data:')) ? img : '';
   $('f_image_file').value = '';
+  if($('f_remove_bg')) $('f_remove_bg').checked = true;
   setPreview(img);
   $('itemModal').classList.add('open');
 }
@@ -663,6 +744,7 @@ function swatchStyle(i){
 function renderFitPanel(){
   const chosen = ITEMS.filter(i=>selectedFit.has(i.id));
   $('fitEmpty').style.display = chosen.length?'none':'block';
+  $('previewFitBtn').style.display = chosen.length?'inline-block':'none';
   $('saveFitBtn').style.display = chosen.length?'inline-block':'none';
   $('clearFitBtn').style.display = chosen.length?'inline-block':'none';
   $('fitStrip').innerHTML = chosen.map(i=>
@@ -708,6 +790,7 @@ function renderCollections(){
           <button class="link" onclick="delOutfit(${o.id})">✕</button></div>
         ${o.items.map(it=>`<div class="piece"><span class="dot" style="${swatchStyle(it)}"></span>
           <span>${esc(it.name)} ${it.brand?`<small>· ${esc(it.brand)}</small>`:''}</span></div>`).join('')}
+        <div style="margin-top:12px"><button style="width:100%; background:var(--gold-soft); color:var(--gold); border:1px solid transparent; padding:8px; border-radius:9px; font-size:11px; letter-spacing:.14em; text-transform:uppercase; cursor:pointer" onclick="viewOutfit(${o.id}, ${c.id})">View Outfit</button></div>
       </div>`).join('');
     return `<div class="coll">
       <div class="coll-head">

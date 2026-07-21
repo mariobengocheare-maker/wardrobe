@@ -1,1 +1,8 @@
 Flask>=3.0
+Pillow>=10.0
+
+# Optional — stronger AI background removal for busy/cluttered backgrounds
+# and tricky (very light) garments. Without it, the app falls back to a
+# built-in remover that works well on plain/solid backgrounds.
+# Install with:  pip install rembg[cpu]
+# rembg
