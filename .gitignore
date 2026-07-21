@@ -1,0 +1,5 @@
+# Your saved wardrobe data — stays on your PC, never committed
+wardrobe.db
+
+__pycache__/
+*.pyc
