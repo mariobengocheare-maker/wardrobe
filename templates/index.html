@@ -662,8 +662,10 @@ async function processImage(dataUrl){
   // Ask the server to knock out the background + standardise the size.
   try{
     const r = await api('/api/process-image','POST',{image:dataUrl, remove_bg:$('f_remove_bg').checked});
+    if(!r){ console.warn('Empty response from /api/process-image'); return dataUrl; }
+    if(r.error){ console.warn('Server processing error:', r.error); }
     return (r && r.image) ? r.image : dataUrl;
-  }catch(e){ return dataUrl; }
+  }catch(e){ console.error('API call failed:', e.message); return dataUrl; }
 }
 $('f_image_file').addEventListener('change', e=>{
   const f = e.target.files[0]; if(!f) return;
@@ -672,10 +674,20 @@ $('f_image_file').addEventListener('change', e=>{
     $('f_preview').classList.add('busy'); setPreview(rd.result);
     $('f_img_hint').dataset.saved = $('f_img_hint').dataset.saved || $('f_img_hint').innerHTML;
     $('f_img_hint').textContent = 'Cleaning up the photo…';
-    const out = await processImage(rd.result);
-    $('f_image_url').value = out; $('f_image_link').value = '';
-    setPreview(out); $('f_preview').classList.remove('busy');
-    $('f_img_hint').innerHTML = $('f_img_hint').dataset.saved;
+    try{
+      const out = await processImage(rd.result);
+      $('f_image_url').value = out; $('f_image_link').value = '';
+      setPreview(out); $('f_preview').classList.remove('busy');
+      $('f_img_hint').innerHTML = $('f_img_hint').dataset.saved;
+    }catch(err){
+      console.error('Photo processing failed:', err);
+      $('f_preview').classList.remove('busy');
+      $('f_img_hint').innerHTML = '<span style="color:var(--gold)">⚠ Photo processing failed. Try a different image or check the browser console for details.</span>';
+    }
+  };
+  rd.onerror = ()=>{
+    console.error('File read failed');
+    $('f_img_hint').innerHTML = '<span style="color:var(--gold)">⚠ Could not read file. Try a different image.</span>';
   };
   rd.readAsDataURL(f);
 });
