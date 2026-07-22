@@ -652,10 +652,20 @@ $('lightbox').addEventListener('click', e=>{ if(e.target.id==='lightbox') closeL
 // --- outfit composition: top stacked over bottom ---
 // Our standardised photos sit on a fixed-size canvas so every piece scales
 // consistently, but that leaves transparent padding around the garment
-// itself (more on some pieces than others). Left alone, that padding shows
-// up as dead space between a stacked top and bottom. We trim it away at
-// render time by scanning each image for where its real (non-transparent)
-// pixels start and stop, then crop the displayed layer to just that band.
+// itself (more on some pieces than others, and by different amounts on
+// each side). Left uncorrected, two problems show up when stacking:
+//  1. The padding reads as dead space between the top and bottom.
+//  2. Every layer gets stretched to fill the same box width regardless of
+//     how large the actual garment is in its photo, so e.g. shorts can end
+//     up rendering wider than the shirt above them — proportions that make
+//     no sense on a body.
+// We fix both by scanning each image for its real (non-transparent) pixel
+// bounding box on all four sides, then sizing + cropping each layer so
+// (a) only the garment itself is shown, tight on every edge, and
+// (b) each garment's on-screen width reflects how large it actually is in
+//     its own photo relative to the other piece in the same outfit — the
+//     bigger piece gets the reference width, the other is scaled down to
+//     match, instead of every layer independently filling the same box.
 const _boundsCache = new Map();
 function contentBounds(src){
   if(_boundsCache.has(src)) return _boundsCache.get(src);
@@ -664,61 +674,106 @@ function contentBounds(src){
     im.onload = ()=>{
       try{
         const w = im.naturalWidth, h = im.naturalHeight;
-        if(!w || !h){ resolve({top:0, bottom:1}); return; }
+        if(!w || !h){ resolve({top:0, bottom:1, left:0, right:1}); return; }
         const cvs = document.createElement('canvas');
         cvs.width = w; cvs.height = h;
         const ctx = cvs.getContext('2d');
         ctx.drawImage(im, 0, 0);
         const data = ctx.getImageData(0, 0, w, h).data;
-        const step = Math.max(1, Math.floor(w / 160));
-        const rowVisible = y=>{
+        const stepX = Math.max(1, Math.floor(w / 160));
+        const stepY = Math.max(1, Math.floor(h / 200));
+        let top=null, bottom=null, left=null, right=null;
+        for(let y=0; y<h; y++){
           const base = y * w * 4;
-          for(let x=0; x<w; x+=step){ if(data[base + x*4 + 3] > 12) return true; }
-          return false;
-        };
-        let top=null, bottom=null;
-        for(let y=0; y<h; y++){ if(rowVisible(y)){ top=y; break; } }
-        for(let y=h-1; y>=0; y--){ if(rowVisible(y)){ bottom=y; break; } }
-        if(top===null || bottom===null || bottom<=top){ resolve({top:0, bottom:1}); return; }
-        resolve({top: top/h, bottom: (bottom+1)/h});
-      }catch(e){ resolve({top:0, bottom:1}); }
+          let hasPixel = false;
+          for(let x=0; x<w; x+=stepX){ if(data[base + x*4 + 3] > 12){ hasPixel = true; break; } }
+          if(hasPixel){ if(top===null) top = y; bottom = y; }
+        }
+        for(let x=0; x<w; x++){
+          let hasPixel = false;
+          for(let y=0; y<h; y+=stepY){ if(data[(y*w + x)*4 + 3] > 12){ hasPixel = true; break; } }
+          if(hasPixel){ if(left===null) left = x; right = x; }
+        }
+        if(top===null || bottom===null || left===null || right===null || bottom<=top || right<=left){
+          resolve({top:0, bottom:1, left:0, right:1}); return;
+        }
+        resolve({top: top/h, bottom: (bottom+1)/h, left: left/w, right: (right+1)/w});
+      }catch(e){ resolve({top:0, bottom:1, left:0, right:1}); }
     };
-    im.onerror = ()=> resolve({top:0, bottom:1});
+    im.onerror = ()=> resolve({top:0, bottom:1, left:0, right:1});
     im.src = src;
   });
   _boundsCache.set(src, p);
   return p;
 }
-function tightenLayer(wrapEl){
-  const img = wrapEl.querySelector('img');
-  if(!img) return Promise.resolve();
-  const src = img.getAttribute('src') || '';
-  if(!src.startsWith('data:image')) return Promise.resolve();
-  const run = async ()=>{
-    const nw = img.naturalWidth, nh = img.naturalHeight;
-    if(!nw || !nh) return;
+function applyTightCrop(wrap, img, bounds, pxScale){
+  const nw = img.naturalWidth, nh = img.naturalHeight;
+  const fullImgW = nw * pxScale;
+  const fullImgH = nh * pxScale;
+  const dispW = Math.max(4, (bounds.right - bounds.left) * fullImgW);
+  const dispH = Math.max(4, (bounds.bottom - bounds.top) * fullImgH);
+  wrap.style.width = dispW.toFixed(1) + 'px';
+  wrap.style.height = dispH.toFixed(1) + 'px';
+  wrap.style.overflow = 'hidden';
+  wrap.style.position = 'relative';
+  img.style.position = 'absolute';
+  img.style.width = fullImgW.toFixed(1) + 'px';
+  img.style.maxWidth = 'none';
+  img.style.left = (-(bounds.left * fullImgW)).toFixed(1) + 'px';
+  img.style.top = (-(bounds.top * fullImgH)).toFixed(1) + 'px';
+}
+async function proportionGroup(groupEl, maxLayerHeight){
+  const wraps = [...groupEl.querySelectorAll('.ov-layer, .ot-layer')];
+  wraps.forEach(w => { w.style.width = ''; });   // reset to CSS defaults before measuring
+  const infos = [];
+  for(const wrap of wraps){
+    const img = wrap.querySelector('img');
+    if(!img) continue;
+    const src = img.getAttribute('src') || '';
+    if(!src.startsWith('data:image')) continue;
+    if(!(img.complete && img.naturalWidth)){
+      await new Promise(res=>{
+        img.addEventListener('load', res, {once:true});
+        img.addEventListener('error', res, {once:true});
+      });
+    }
+    if(!img.naturalWidth) continue;
     const bounds = await contentBounds(src);
-    const contentFrac = Math.max(0.04, bounds.bottom - bounds.top);
-    const w = wrapEl.getBoundingClientRect().width;
-    if(!w) return;
-    const fullH = w * (nh / nw);
-    const visH = fullH * contentFrac;
-    wrapEl.style.overflow = 'hidden';
-    wrapEl.style.height = visH.toFixed(1) + 'px';
-    img.style.position = 'absolute';
-    img.style.left = '0';
-    img.style.top = (-(fullH * bounds.top)).toFixed(1) + 'px';
-    img.style.width = '100%';
-  };
-  if(img.complete && img.naturalWidth) return run();
-  return new Promise(resolve=>{
-    img.addEventListener('load', ()=>run().then(resolve), {once:true});
-    img.addEventListener('error', resolve, {once:true});
-  });
+    infos.push({ wrap, img, bounds, nw: img.naturalWidth, nh: img.naturalHeight });
+  }
+  if(!infos.length) return;
+  // All our standardised photos share the same canvas size, so each
+  // garment's real (non-transparent) width/height IN CANVAS PIXELS is
+  // directly comparable across pieces. Pick one shared pixels-per-canvas-unit
+  // scale — sized so the widest garment fills the box's default width — and
+  // apply it to every piece. That keeps width AND height faithful to the
+  // real photo instead of inflating a piece just because its own content
+  // happens to be a small fraction of its canvas (e.g. slim trousers).
+  const contentWidthsPx = infos.map(o => Math.max(1, (o.bounds.right - o.bounds.left) * o.nw));
+  const contentHeightsPx = infos.map(o => Math.max(1, (o.bounds.bottom - o.bounds.top) * o.nh));
+  const maxContentPx = Math.max(...contentWidthsPx);
+  const refBoxWidth = infos[0].wrap.getBoundingClientRect().width || 150;
+  let pxScale = refBoxWidth / maxContentPx;
+  // A garment that's naturally tall and narrow (slim trousers, say) can still
+  // end up taller than the card even at a "correct" width — cap it like
+  // object-fit:contain for the whole pair: if the tallest piece would bust
+  // the height budget, shrink the shared scale (not any one piece alone) so
+  // everything still fits, with proportions between pieces unchanged.
+  if(maxLayerHeight){
+    const tallestPx = Math.max(...contentHeightsPx);
+    const tallestDisp = tallestPx * pxScale;
+    if(tallestDisp > maxLayerHeight) pxScale *= maxLayerHeight / tallestDisp;
+  }
+  infos.forEach(o => applyTightCrop(o.wrap, o.img, o.bounds, pxScale));
 }
 function tightenAll(root){
   if(!root) return;
-  root.querySelectorAll('.ov-layer, .ot-layer').forEach(tightenLayer);
+  const thumbs = root.querySelectorAll('.outfit-thumb');
+  if(thumbs.length){
+    thumbs.forEach(t => proportionGroup(t, 160));
+  } else if(root.querySelector('.ov-layer')){
+    proportionGroup(root, 380);
+  }
 }
 function ovLayer(i, cls){
   const inner = i.image_url
