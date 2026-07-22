@@ -216,17 +216,38 @@
   .fit-temp-big b{color:var(--gold);}
   .fit-actions{display:flex; gap:10px; margin-top:20px; flex-wrap:wrap;}
 
+  /* ---------- fit maker: tops/bottoms columns ---------- */
+  .fit-columns{display:flex; gap:22px; align-items:flex-start;}
+  .fit-col{flex:1 1 0; min-width:0; transition:flex .3s ease;}
+  .fit-col.collapsed{flex:0 0 210px;}
+  .fit-col-head{display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:14px; padding-bottom:9px; border-bottom:1px solid var(--line);}
+  .fit-col-head h4{margin:0; font-size:19px; font-family:"Didot","Bodoni MT",Georgia,serif;}
+  .fit-col-head.collapsed-head{cursor:pointer;}
+  .fit-col-head.collapsed-head:hover h4{color:var(--gold);}
+  .fit-col-hint{font-size:11px; color:var(--muted); letter-spacing:.08em; text-transform:uppercase;}
+  .fit-col-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:16px;}
+  .fit-col.collapsed .fit-col-grid{display:none;}
+  .fit-col-collapsed-strip{display:flex; flex-wrap:wrap; gap:8px;}
+  .mini-chip{width:46px; height:56px; border-radius:9px; border:1px solid var(--line); background-color:#f1ece1; background-size:cover; background-position:center; box-shadow:var(--shadow-sm);}
+  @media(max-width:760px){.fit-columns{flex-direction:column;} .fit-col.collapsed{flex:0 0 auto;}}
+
   /* ---------- collections ---------- */
   .coll{background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow-sm); padding:26px 28px; margin-bottom:26px;}
   .coll-head{display:flex; align-items:flex-start; justify-content:space-between; flex-wrap:wrap; gap:12px;}
   .coll-head h3{margin:0; font-size:27px;}
-  .outfit-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:16px; margin-top:20px;}
-  .outfit{border:1px solid var(--line); border-radius:14px; padding:16px; background:#fff; transition:.18s;}
-  .outfit:hover{box-shadow:var(--shadow-sm);}
-  .outfit .oname{font-weight:600; margin-bottom:12px; font-size:15px; display:flex; justify-content:space-between; align-items:center; gap:8px;}
-  .outfit .piece{display:flex; align-items:center; gap:9px; font-size:13px; margin:6px 0; color:var(--ink);}
-  .outfit .piece .dot{width:26px; height:26px; border-radius:6px; border:1px solid rgba(0,0,0,.12); background-size:cover; background-position:center; flex:none;}
-  .outfit .piece small{color:var(--muted);}
+  .outfit-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:16px; margin-top:20px;}
+  .outfit{border:1px solid var(--line); border-radius:14px; padding:14px; background:#fff; transition:.18s; cursor:pointer; position:relative;}
+  .outfit:hover{box-shadow:var(--shadow); transform:translateY(-3px);}
+  .outfit .oname{font-weight:600; margin-top:10px; font-size:14px; text-align:center;}
+  .outfit-del{position:absolute; top:10px; right:10px; z-index:3; width:24px; height:24px; border-radius:50%; background:rgba(255,253,249,.92); border:1px solid var(--line); color:var(--muted); font-size:12px; display:flex; align-items:center; justify-content:center; cursor:pointer;}
+  .outfit-del:hover{color:var(--gold); border-color:var(--gold);}
+  .outfit-thumb{height:168px; border-radius:10px; position:relative; overflow:hidden;
+    background:radial-gradient(120% 90% at 50% 10%, #fffefb 0%, #f0eadd 62%, #e6decd 100%);}
+  .ot-layer{position:absolute; left:50%; transform:translateX(-50%); width:64%; max-width:130px; display:flex; align-items:center; justify-content:center;}
+  .ot-layer img{width:100%; object-fit:contain; filter:drop-shadow(0 6px 10px rgba(60,45,25,.16));}
+  .ot-top{top:8px; z-index:2;}
+  .ot-bottom{bottom:4px; z-index:1;}
+  .ot-flat{width:100%; height:64px; border-radius:8px;}
 
   /* ---------- lightbox ---------- */
   .lightbox{position:fixed; inset:0; background:rgba(12,9,5,.86); backdrop-filter:blur(6px); display:none; align-items:center; justify-content:center; padding:26px; z-index:80;}
@@ -326,8 +347,8 @@
     </div>
     <div class="fit-wrap">
       <div>
-        <p class="meta" style="margin-bottom:18px">Tap pieces to build a look. See how they come together and how warm the whole fit runs.</p>
-        <div id="fitGrid" class="grid"></div>
+        <p class="meta" style="margin-bottom:18px">Tap a top, then a bottom, to build a look. See how they come together and how warm the whole fit runs.</p>
+        <div id="fitGrid"></div>
       </div>
       <aside class="fit-panel">
         <h3>Your Fit</h3>
@@ -469,6 +490,7 @@ let ITEMS = [], COLLECTIONS = [];
 const selectedFit = new Set();
 let wardrobeType = 'Top';   // Tops | Bottoms
 let subFilter = null;       // active category filter within a type
+let fitFocus = null;        // 'Top' | 'Bottom' | null — which fit-maker column is collapsed
 
 const $ = id => document.getElementById(id);
 async function api(url, method='GET', body){
@@ -537,7 +559,7 @@ function refreshDatalists(){
 }
 
 // --- shared photo tile ---
-function photoTile(i, {zoom=true}={}){
+function photoTile(i, {zoom=true, pick=false}={}){
   if(i.image_url){
     return `<div class="photo-wrap" ${zoom?`onclick="event.stopPropagation();openLightbox(${i.id})"`:''}>
       <div class="badges">
@@ -548,13 +570,14 @@ function photoTile(i, {zoom=true}={}){
       <img src="${esc(i.image_url)}" alt="${esc(i.name)}">
     </div>`;
   }
+  const noimgClick = pick ? '' : `onclick="event.stopPropagation();openItemModal(${i.id})"`;
   return `<div class="photo-wrap">
     <div class="badges">
       <span class="tag type">${esc(typeOf(i))}</span>
       ${i.category?`<span class="tag">${esc(i.category)}</span>`:''}
     </div>
     <span class="check">✓</span>
-    <div class="noimg" onclick="event.stopPropagation();openItemModal(${i.id})">
+    <div class="noimg" ${noimgClick}>
       <div class="swz" style="background:${i.color_hex||'#ccc'}"></div>
       <div class="cam">＋</div><span>Add Photo</span>
     </div>
@@ -563,7 +586,7 @@ function photoTile(i, {zoom=true}={}){
 function itemCardHTML(i, {pick=false}={}){
   const t = tempLabel(i.temp_min, i.temp_max);
   return `
-    ${photoTile(i, {zoom:!pick})}
+    ${photoTile(i, {zoom:!pick, pick})}
     <div class="card-body">
       <h3>${esc(i.name)}</h3>
       ${i.brand?`<div class="meta"><b>${esc(i.brand)}</b></div>`:''}
@@ -646,6 +669,17 @@ function openOutfitView(items, title){
 }
 function closeOutfitView(){ $('outfitView').classList.remove('open'); }
 $('outfitView').addEventListener('click', e=>{ if(e.target.id==='outfitView') closeOutfitView(); });
+function outfitThumbHTML(o){
+  const top = o.items.find(i=>typeOf(i)==='Top');
+  const bottom = o.items.find(i=>typeOf(i)==='Bottom');
+  const layer = (i, cls) => {
+    if(!i) return '';
+    const inner = i.image_url ? `<img src="${esc(i.image_url)}" alt="${esc(i.name)}">`
+      : `<div class="ot-flat" style="background:${i.color_hex||'#bbb'}"></div>`;
+    return `<div class="ot-layer ${cls}">${inner}</div>`;
+  };
+  return `<div class="outfit-thumb">${layer(top,'ot-top')}${layer(bottom,'ot-bottom')}</div>`;
+}
 function previewFit(){ const c = ITEMS.filter(i=>selectedFit.has(i.id)); if(c.length) openOutfitView(c, c.map(i=>i.color||i.name).join(' + ')); }
 function viewOutfit(outfitId, collId){
   const coll = COLLECTIONS.find(c=>c.id===collId);
@@ -740,16 +774,48 @@ async function delItem(id){
 }
 
 // --- fit maker ---
+function fitColHTML(type, items, collapsed){
+  const label = type==='Top' ? 'Tops' : 'Bottoms';
+  if(!items.length){
+    return `<div class="fit-col-head"><h4>${label}</h4></div><div class="empty" style="padding:30px 0">No ${label.toLowerCase()} yet.</div>`;
+  }
+  if(collapsed){
+    const chosen = items.filter(i=>selectedFit.has(i.id));
+    return `<div class="fit-col-head collapsed-head" onclick="expandFit()">
+        <h4>${label}</h4><span class="fit-col-hint">${chosen.length ? 'Change' : 'Expand'}</span>
+      </div>
+      <div class="fit-col-collapsed-strip">${
+        chosen.length ? chosen.map(i=>`<div class="mini-chip" style="${swatchStyle(i)}" title="${esc(i.name)}"></div>`).join('')
+        : '<div class="meta" style="font-size:12px">None picked</div>'
+      }</div>`;
+  }
+  return `<div class="fit-col-head"><h4>${label}</h4></div>
+    <div class="fit-col-grid">${items.map(i=>{
+      const sel = selectedFit.has(i.id) ? ' sel' : '';
+      return `<div class="card pick-card${sel}" onclick="toggleFit(${i.id})">${itemCardHTML(i,{pick:true})}</div>`;
+    }).join('')}</div>`;
+}
 function renderFit(){
   if(!ITEMS.length){ $('fitGrid').innerHTML='<div class="empty">Add pieces to your wardrobe first.</div>'; return; }
-  $('fitGrid').innerHTML = ITEMS.map(i=>{
-    const sel = selectedFit.has(i.id)?' sel':'';
-    return `<div class="card pick-card${sel}" onclick="toggleFit(${i.id})">${itemCardHTML(i,{pick:true})}</div>`;
-  }).join('');
+  const tops = ITEMS.filter(i=>typeOf(i)==='Top');
+  const bottoms = ITEMS.filter(i=>typeOf(i)==='Bottom');
+  const topsCollapsed = fitFocus === 'Top';
+  const bottomsCollapsed = fitFocus === 'Bottom';
+  $('fitGrid').innerHTML = `
+    <div class="fit-columns">
+      <div class="fit-col${topsCollapsed?' collapsed':''}">${fitColHTML('Top', tops, topsCollapsed)}</div>
+      <div class="fit-col${bottomsCollapsed?' collapsed':''}">${fitColHTML('Bottom', bottoms, bottomsCollapsed)}</div>
+    </div>`;
   renderFitPanel();
 }
-function toggleFit(id){ selectedFit.has(id)?selectedFit.delete(id):selectedFit.add(id); renderFit(); }
-function clearFit(){ selectedFit.clear(); renderFit(); }
+function toggleFit(id){
+  const i = ITEMS.find(x=>x.id===id);
+  selectedFit.has(id) ? selectedFit.delete(id) : selectedFit.add(id);
+  fitFocus = typeOf(i);   // collapse the column just picked from, expand the other
+  renderFit();
+}
+function expandFit(){ fitFocus = null; renderFit(); }
+function clearFit(){ selectedFit.clear(); fitFocus = null; renderFit(); }
 function swatchStyle(i){
   return i.image_url ? `background-image:url('${esc(i.image_url)}')` : `background:${i.color_hex||'#ddd'}`;
 }
@@ -797,12 +863,10 @@ function renderCollections(){
   $('collList').innerHTML = COLLECTIONS.map(c=>{
     const t = tempLabel(c.temp_min, c.temp_max);
     const outfits = c.outfits.map(o=>`
-      <div class="outfit">
-        <div class="oname"><span>${esc(o.name||'Outfit')}</span>
-          <button class="link" onclick="delOutfit(${o.id})">✕</button></div>
-        ${o.items.map(it=>`<div class="piece"><span class="dot" style="${swatchStyle(it)}"></span>
-          <span>${esc(it.name)} ${it.brand?`<small>· ${esc(it.brand)}</small>`:''}</span></div>`).join('')}
-        <div style="margin-top:12px"><button style="width:100%; background:var(--gold-soft); color:var(--gold); border:1px solid transparent; padding:8px; border-radius:9px; font-size:11px; letter-spacing:.14em; text-transform:uppercase; cursor:pointer" onclick="viewOutfit(${o.id}, ${c.id})">View Outfit</button></div>
+      <div class="outfit" onclick="viewOutfit(${o.id}, ${c.id})">
+        <button class="outfit-del" onclick="event.stopPropagation();delOutfit(${o.id})">✕</button>
+        ${outfitThumbHTML(o)}
+        <div class="oname">${esc(o.name||'Outfit')}</div>
       </div>`).join('');
     return `<div class="coll">
       <div class="coll-head">
