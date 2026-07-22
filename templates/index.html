@@ -770,9 +770,18 @@ function tightenAll(root){
   if(!root) return;
   const thumbs = root.querySelectorAll('.outfit-thumb');
   if(thumbs.length){
-    thumbs.forEach(t => proportionGroup(t, 160));
-  } else if(root.querySelector('.ov-layer')){
-    proportionGroup(root, 380);
+    thumbs.forEach(t => proportionGroup(t, 210));
+  } else {
+    const layers = root.querySelectorAll('.ov-layer');
+    if(!layers.length) return;
+    // Cap each layer so the WHOLE stack fits the stage's actual available
+    // height (a fixed guess broke down for two naturally-tall pieces, like a
+    // long-sleeve top over full-length pants, which together could exceed
+    // the modal and get silently clipped/scrolled instead of shrinking to fit).
+    const gap = 16 * Math.max(0, layers.length - 1);
+    const avail = root.clientHeight || 640;
+    const perLayerCap = Math.max(90, (avail - gap) / layers.length);
+    proportionGroup(root, perLayerCap);
   }
 }
 function ovLayer(i, cls){
