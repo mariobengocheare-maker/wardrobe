@@ -5,10 +5,31 @@ wardrobe + the "Office" collection on first run.
 """
 
 import os
+import shutil
 import sqlite3
 from itertools import product
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "wardrobe.db")
+# The database lives in a fixed spot in the user's profile — NOT inside the
+# project folder. That way, re-downloading the app into a brand new folder
+# (a fresh "WARDROBE 1.4" extract, say) still finds the same wardrobe data;
+# nothing looks wiped just because the code moved.
+_OLD_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "wardrobe.db")
+
+
+def _data_dir():
+    base = os.environ.get("APPDATA") or os.path.expanduser("~")
+    d = os.path.join(base, "WardrobeApp")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+DB_PATH = os.path.join(_data_dir(), "wardrobe.db")
+
+# One-time migration for anyone upgrading from a version that kept the
+# database next to the code: adopt that existing database instead of
+# starting over.
+if not os.path.exists(DB_PATH) and os.path.exists(_OLD_DB_PATH):
+    shutil.move(_OLD_DB_PATH, DB_PATH)
 
 
 def get_conn():
