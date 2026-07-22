@@ -25,8 +25,15 @@ Windows PC.
   (empty DB), seeds the starting wardrobe and the "Office" collection.
 - `templates/index.html` — the entire frontend. One file, three tabs:
   **Wardrobe**, **Fit Maker**, **Collections**. Vanilla JS, no framework.
-- `wardrobe.db` — SQLite DB, **gitignored**. Holds the user's real wardrobe
-  data — never commit it.
+- `wardrobe.db` — SQLite DB, **gitignored**, and lives OUTSIDE the project
+  folder (in `%APPDATA%\WardrobeApp\wardrobe.db`, resolved in `db.py`) —
+  never commit it. This is deliberate: the user re-downloads the app as a
+  fresh ZIP into a new folder for every update, and a fixed, code-independent
+  location means every item, photo, and collection survives that
+  automatically. Don't move the DB back inside the project folder.
+- `static/theme.mp3` — home-page theme song, **committed** (not gitignored).
+  The user uploaded this once and never wants to re-upload it, so it ships
+  with the repo like any other asset.
 
 ## Features (all working, verified)
 

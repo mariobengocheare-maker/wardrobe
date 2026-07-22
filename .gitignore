@@ -7,8 +7,3 @@ __pycache__/
 # Node dependencies (for testing/development, not shipped to users)
 node_modules/
 package-lock.json
-
-# Home-page theme music — plays locally, kept out of the public repo/ZIP
-# (drop your own audio file here as static/theme.mp3)
-static/theme.mp3
-*.mp3

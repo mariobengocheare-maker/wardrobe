@@ -241,12 +241,13 @@
   .outfit .oname{font-weight:600; margin-top:10px; font-size:14px; text-align:center;}
   .outfit-del{position:absolute; top:10px; right:10px; z-index:3; width:24px; height:24px; border-radius:50%; background:rgba(255,253,249,.92); border:1px solid var(--line); color:var(--muted); font-size:12px; display:flex; align-items:center; justify-content:center; cursor:pointer;}
   .outfit-del:hover{color:var(--gold); border-color:var(--gold);}
-  .outfit-thumb{height:168px; border-radius:10px; position:relative; overflow:hidden;
+  .outfit-thumb{min-height:150px; border-radius:10px; overflow:hidden; padding:14px 0 10px;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
     background:radial-gradient(120% 90% at 50% 10%, #fffefb 0%, #f0eadd 62%, #e6decd 100%);}
-  .ot-layer{position:absolute; left:50%; transform:translateX(-50%); width:64%; max-width:130px; display:flex; align-items:center; justify-content:center;}
-  .ot-layer img{width:100%; object-fit:contain; filter:drop-shadow(0 6px 10px rgba(60,45,25,.16));}
-  .ot-top{top:8px; z-index:2;}
-  .ot-bottom{bottom:4px; z-index:1;}
+  .ot-layer{width:68%; max-width:150px; margin:0 auto; position:relative;}
+  .ot-layer img{width:100%; display:block; filter:drop-shadow(0 6px 10px rgba(60,45,25,.16));}
+  .ot-top{z-index:2;}
+  .ot-bottom{margin-top:-10px; z-index:1;}
   .ot-flat{width:100%; height:64px; border-radius:8px;}
 
   /* ---------- lightbox ---------- */
@@ -269,10 +270,10 @@
   .ov-close{width:34px; height:34px; border-radius:50%; border:1px solid var(--line); background:#fff; cursor:pointer; font-size:14px;}
   .ov-stage{flex:1; overflow:auto; padding:6px 22px 10px; display:flex; flex-direction:column; align-items:center;
     background:radial-gradient(120% 70% at 50% 8%, #fffefb 0%, #f0eadd 60%, #e6decd 100%);}
-  .ov-layer{width:78%; max-width:300px; display:flex; align-items:center; justify-content:center;}
-  .ov-layer img{width:100%; object-fit:contain; filter:drop-shadow(0 12px 18px rgba(60,45,25,.18));}
+  .ov-layer{width:78%; max-width:300px; position:relative; margin:0 auto;}
+  .ov-layer img{width:100%; display:block; filter:drop-shadow(0 12px 18px rgba(60,45,25,.18));}
   .ov-layer.top{z-index:2;}
-  .ov-layer.bottom{margin-top:-26px; z-index:1;}
+  .ov-layer.bottom{margin-top:-18px; z-index:1;}
   .ov-layer .flat{width:100%; height:150px; border-radius:12px; display:flex; align-items:center; justify-content:center; color:#fff; font-size:12px; letter-spacing:.1em; text-transform:uppercase; box-shadow:var(--shadow-sm);}
   .ov-foot{padding:12px 22px 20px; color:var(--muted); font-size:12px; text-align:center;}
 </style>
@@ -530,6 +531,7 @@ document.querySelectorAll('nav.tabs button').forEach(b=>{
     document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));
     b.classList.add('active');
     $('view-'+b.dataset.tab).classList.add('active');
+    if(b.dataset.tab==='collections') tightenAll($('collList'));
   };
 });
 // --- Tops / Bottoms segmented ---
@@ -648,6 +650,76 @@ function closeLightbox(){ $('lightbox').classList.remove('open'); }
 $('lightbox').addEventListener('click', e=>{ if(e.target.id==='lightbox') closeLightbox(); });
 
 // --- outfit composition: top stacked over bottom ---
+// Our standardised photos sit on a fixed-size canvas so every piece scales
+// consistently, but that leaves transparent padding around the garment
+// itself (more on some pieces than others). Left alone, that padding shows
+// up as dead space between a stacked top and bottom. We trim it away at
+// render time by scanning each image for where its real (non-transparent)
+// pixels start and stop, then crop the displayed layer to just that band.
+const _boundsCache = new Map();
+function contentBounds(src){
+  if(_boundsCache.has(src)) return _boundsCache.get(src);
+  const p = new Promise(resolve=>{
+    const im = new Image();
+    im.onload = ()=>{
+      try{
+        const w = im.naturalWidth, h = im.naturalHeight;
+        if(!w || !h){ resolve({top:0, bottom:1}); return; }
+        const cvs = document.createElement('canvas');
+        cvs.width = w; cvs.height = h;
+        const ctx = cvs.getContext('2d');
+        ctx.drawImage(im, 0, 0);
+        const data = ctx.getImageData(0, 0, w, h).data;
+        const step = Math.max(1, Math.floor(w / 160));
+        const rowVisible = y=>{
+          const base = y * w * 4;
+          for(let x=0; x<w; x+=step){ if(data[base + x*4 + 3] > 12) return true; }
+          return false;
+        };
+        let top=null, bottom=null;
+        for(let y=0; y<h; y++){ if(rowVisible(y)){ top=y; break; } }
+        for(let y=h-1; y>=0; y--){ if(rowVisible(y)){ bottom=y; break; } }
+        if(top===null || bottom===null || bottom<=top){ resolve({top:0, bottom:1}); return; }
+        resolve({top: top/h, bottom: (bottom+1)/h});
+      }catch(e){ resolve({top:0, bottom:1}); }
+    };
+    im.onerror = ()=> resolve({top:0, bottom:1});
+    im.src = src;
+  });
+  _boundsCache.set(src, p);
+  return p;
+}
+function tightenLayer(wrapEl){
+  const img = wrapEl.querySelector('img');
+  if(!img) return Promise.resolve();
+  const src = img.getAttribute('src') || '';
+  if(!src.startsWith('data:image')) return Promise.resolve();
+  const run = async ()=>{
+    const nw = img.naturalWidth, nh = img.naturalHeight;
+    if(!nw || !nh) return;
+    const bounds = await contentBounds(src);
+    const contentFrac = Math.max(0.04, bounds.bottom - bounds.top);
+    const w = wrapEl.getBoundingClientRect().width;
+    if(!w) return;
+    const fullH = w * (nh / nw);
+    const visH = fullH * contentFrac;
+    wrapEl.style.overflow = 'hidden';
+    wrapEl.style.height = visH.toFixed(1) + 'px';
+    img.style.position = 'absolute';
+    img.style.left = '0';
+    img.style.top = (-(fullH * bounds.top)).toFixed(1) + 'px';
+    img.style.width = '100%';
+  };
+  if(img.complete && img.naturalWidth) return run();
+  return new Promise(resolve=>{
+    img.addEventListener('load', ()=>run().then(resolve), {once:true});
+    img.addEventListener('error', resolve, {once:true});
+  });
+}
+function tightenAll(root){
+  if(!root) return;
+  root.querySelectorAll('.ov-layer, .ot-layer').forEach(tightenLayer);
+}
 function ovLayer(i, cls){
   const inner = i.image_url
     ? `<img src="${esc(i.image_url)}" alt="${esc(i.name)}">`
@@ -666,6 +738,7 @@ function openOutfitView(items, title){
     ? `${missing} piece${missing>1?'s':''} without a photo shown as a colour block — add photos to complete the look.`
     : 'Top stacked over bottom.';
   $('outfitView').classList.add('open');
+  tightenAll($('ov_stage'));
 }
 function closeOutfitView(){ $('outfitView').classList.remove('open'); }
 $('outfitView').addEventListener('click', e=>{ if(e.target.id==='outfitView') closeOutfitView(); });
@@ -883,6 +956,7 @@ function renderCollections(){
       <div class="outfit-grid">${outfits || '<div class="meta">No outfits yet — build one in Fit Maker.</div>'}</div>
     </div>`;
   }).join('');
+  tightenAll($('collList'));
 }
 function openCollModal(id){
   const editing = COLLECTIONS.find(x=>x.id===id);
