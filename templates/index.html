@@ -951,10 +951,16 @@ function fitColHTML(type, items, collapsed){
       return `<div class="card pick-card${sel}" onclick="toggleFit(${i.id})">${itemCardHTML(i,{pick:true})}</div>`;
     }).join('')}</div>`;
 }
+const POLO_RE = /polo/i;
+function isPolo(i){ return POLO_RE.test((i.category||'') + ' ' + (i.name||'')); }
 function renderFit(){
   if(!ITEMS.length){ $('fitGrid').innerHTML='<div class="empty">Add pieces to your wardrobe first.</div>'; return; }
-  const tops = ITEMS.filter(i=>typeOf(i)==='Top');
+  let tops = ITEMS.filter(i=>typeOf(i)==='Top');
   const bottoms = ITEMS.filter(i=>typeOf(i)==='Bottom');
+  // Shorts read as more casual — once one's picked, surface polos first
+  // among the tops so the natural pairing is right there, not buried.
+  const shortsPicked = bottoms.some(i => selectedFit.has(i.id) && isShorts(i));
+  if(shortsPicked) tops = [...tops].sort((a, b) => (isPolo(b)?1:0) - (isPolo(a)?1:0));
   const topsCollapsed = fitFocus === 'Top';
   const bottomsCollapsed = fitFocus === 'Bottom';
   $('fitGrid').innerHTML = `
