@@ -652,20 +652,24 @@ $('lightbox').addEventListener('click', e=>{ if(e.target.id==='lightbox') closeL
 // --- outfit composition: top stacked over bottom ---
 // Our standardised photos sit on a fixed-size canvas so every piece scales
 // consistently, but that leaves transparent padding around the garment
-// itself (more on some pieces than others, and by different amounts on
-// each side). Left uncorrected, two problems show up when stacking:
-//  1. The padding reads as dead space between the top and bottom.
-//  2. Every layer gets stretched to fill the same box width regardless of
-//     how large the actual garment is in its photo, so e.g. shorts can end
-//     up rendering wider than the shirt above them — proportions that make
-//     no sense on a body.
-// We fix both by scanning each image for its real (non-transparent) pixel
-// bounding box on all four sides, then sizing + cropping each layer so
-// (a) only the garment itself is shown, tight on every edge, and
-// (b) each garment's on-screen width reflects how large it actually is in
-//     its own photo relative to the other piece in the same outfit — the
-//     bigger piece gets the reference width, the other is scaled down to
-//     match, instead of every layer independently filling the same box.
+// itself (more on some pieces than others). We trim that away by scanning
+// each image for its real (non-transparent) pixel bounding box on all four
+// sides, then cropping tight to it.
+//
+// Sizing is a styling convention, not a literal re-measurement of each
+// product photo: every layer renders at the SAME width (top and bottom
+// always line up, so shorts never end up wider than the shirt above them
+// just because that product photo happened to be framed wider). Height
+// follows the garment's own photographed aspect ratio at that shared
+// width, except bottoms get a deliberate nudge by category — full-length
+// pants/trousers are guaranteed to read as visibly longer than the top
+// (never just "however tall this particular photo's crop happens to be"),
+// while shorts are capped to visibly shorter, regardless of what the raw
+// photo aspect ratio alone would produce.
+const MIN_PANTS_TOP_RATIO = 1.35;   // pants render at least 35% taller than the top
+const MAX_SHORTS_TOP_RATIO = 0.62;  // shorts render at most ~62% of the top's height
+const SHORTS_RE = /short/i;
+function isShorts(i){ return SHORTS_RE.test((i.category||'') + ' ' + (i.name||'')); }
 const _boundsCache = new Map();
 function contentBounds(src){
   if(_boundsCache.has(src)) return _boundsCache.get(src);
@@ -706,89 +710,103 @@ function contentBounds(src){
   _boundsCache.set(src, p);
   return p;
 }
-function applyTightCrop(wrap, img, bounds, pxScale){
-  const nw = img.naturalWidth, nh = img.naturalHeight;
-  const fullImgW = nw * pxScale;
-  const fullImgH = nh * pxScale;
-  const dispW = Math.max(4, (bounds.right - bounds.left) * fullImgW);
-  const dispH = Math.max(4, (bounds.bottom - bounds.top) * fullImgH);
-  wrap.style.width = dispW.toFixed(1) + 'px';
+function placeLayer(wrap, img, bounds, refW, dispH){
+  // Fixed box width (refW) for every layer in the group; height is whatever
+  // the caller decided (natural aspect, possibly nudged by garment category).
+  // The garment's real content is centered in that fixed-width window and
+  // cropped left/right if its own photo is wider than the box.
+  const contentFracH = Math.max(0.04, bounds.right - bounds.left);
+  const contentFracV = Math.max(0.04, bounds.bottom - bounds.top);
+  const fullImgH = dispH / contentFracV;
+  const fullImgW = fullImgH * (img.naturalWidth / img.naturalHeight);
+  const contentW = contentFracH * fullImgW;
+  const imgLeft = (refW - contentW) / 2 - bounds.left * fullImgW;
+  const imgTop = -(bounds.top * fullImgH);
+  wrap.style.width = refW.toFixed(1) + 'px';
   wrap.style.height = dispH.toFixed(1) + 'px';
   wrap.style.overflow = 'hidden';
   wrap.style.position = 'relative';
   img.style.position = 'absolute';
   img.style.width = fullImgW.toFixed(1) + 'px';
   img.style.maxWidth = 'none';
-  img.style.left = (-(bounds.left * fullImgW)).toFixed(1) + 'px';
-  img.style.top = (-(bounds.top * fullImgH)).toFixed(1) + 'px';
+  img.style.left = imgLeft.toFixed(1) + 'px';
+  img.style.top = imgTop.toFixed(1) + 'px';
 }
-async function proportionGroup(groupEl, maxLayerHeight){
+async function proportionGroup(groupEl, availableStackHeight){
   const wraps = [...groupEl.querySelectorAll('.ov-layer, .ot-layer')];
-  wraps.forEach(w => { w.style.width = ''; });   // reset to CSS defaults before measuring
-  const infos = [];
+  wraps.forEach(w => { w.style.width = ''; w.style.height = ''; });   // reset to CSS defaults before measuring
+  const layerInfos = [];
   for(const wrap of wraps){
+    const kind = wrap.dataset.kind || 'top';
+    let imgData = null;
     const img = wrap.querySelector('img');
-    if(!img) continue;
-    const src = img.getAttribute('src') || '';
-    if(!src.startsWith('data:image')) continue;
-    if(!(img.complete && img.naturalWidth)){
-      await new Promise(res=>{
-        img.addEventListener('load', res, {once:true});
-        img.addEventListener('error', res, {once:true});
-      });
+    if(img){
+      const src = img.getAttribute('src') || '';
+      if(src.startsWith('data:image')){
+        if(!(img.complete && img.naturalWidth)){
+          await new Promise(res=>{
+            img.addEventListener('load', res, {once:true});
+            img.addEventListener('error', res, {once:true});
+          });
+        }
+        if(img.naturalWidth) imgData = { img, bounds: await contentBounds(src) };
+      }
     }
-    if(!img.naturalWidth) continue;
-    const bounds = await contentBounds(src);
-    infos.push({ wrap, img, bounds, nw: img.naturalWidth, nh: img.naturalHeight });
+    layerInfos.push({ wrap, kind, imgData });
   }
-  if(!infos.length) return;
-  // All our standardised photos share the same canvas size, so each
-  // garment's real (non-transparent) width/height IN CANVAS PIXELS is
-  // directly comparable across pieces. Pick one shared pixels-per-canvas-unit
-  // scale — sized so the widest garment fills the box's default width — and
-  // apply it to every piece. That keeps width AND height faithful to the
-  // real photo instead of inflating a piece just because its own content
-  // happens to be a small fraction of its canvas (e.g. slim trousers).
-  const contentWidthsPx = infos.map(o => Math.max(1, (o.bounds.right - o.bounds.left) * o.nw));
-  const contentHeightsPx = infos.map(o => Math.max(1, (o.bounds.bottom - o.bounds.top) * o.nh));
-  const maxContentPx = Math.max(...contentWidthsPx);
-  const refBoxWidth = infos[0].wrap.getBoundingClientRect().width || 150;
-  let pxScale = refBoxWidth / maxContentPx;
-  // A garment that's naturally tall and narrow (slim trousers, say) can still
-  // end up taller than the card even at a "correct" width — cap it like
-  // object-fit:contain for the whole pair: if the tallest piece would bust
-  // the height budget, shrink the shared scale (not any one piece alone) so
-  // everything still fits, with proportions between pieces unchanged.
-  if(maxLayerHeight){
-    const tallestPx = Math.max(...contentHeightsPx);
-    const tallestDisp = tallestPx * pxScale;
-    if(tallestDisp > maxLayerHeight) pxScale *= maxLayerHeight / tallestDisp;
-  }
-  infos.forEach(o => applyTightCrop(o.wrap, o.img, o.bounds, pxScale));
+  if(!layerInfos.some(l => l.imgData)) return;   // nothing photographed to size against
+
+  const refW = layerInfos[0].wrap.getBoundingClientRect().width || 150;
+  const naturalH = l => l.imgData
+    ? refW * (l.imgData.img.naturalHeight / l.imgData.img.naturalWidth) *
+      Math.max(0.04, l.imgData.bounds.bottom - l.imgData.bounds.top)
+    : (l.wrap.getBoundingClientRect().height || 0);
+
+  const topLayer = layerInfos.find(l => l.kind === 'top');
+  const topH = topLayer ? naturalH(topLayer) : null;
+
+  const targetH = new Map();
+  layerInfos.forEach(l => {
+    let h = naturalH(l);
+    if(topH != null){
+      if(l.kind === 'pants') h = Math.max(h, topH * MIN_PANTS_TOP_RATIO);
+      else if(l.kind === 'shorts') h = Math.min(h, topH * MAX_SHORTS_TOP_RATIO);
+    }
+    targetH.set(l.wrap, h);
+  });
+
+  // Fit the whole stack (all layers + gaps) within the available height by
+  // shrinking width and height TOGETHER — never just one, which would
+  // squish the garments instead of scaling them down cleanly.
+  const gap = 16 * Math.max(0, layerInfos.length - 1);
+  const totalNeeded = [...targetH.values()].reduce((a, b) => a + b, 0) + gap;
+  const shrink = (availableStackHeight && totalNeeded > availableStackHeight)
+    ? availableStackHeight / totalNeeded : 1;
+  const finalW = refW * shrink;
+
+  layerInfos.forEach(l => {
+    const h = targetH.get(l.wrap) * shrink;
+    if(l.imgData) placeLayer(l.wrap, l.imgData.img, l.imgData.bounds, finalW, h);
+    else { l.wrap.style.width = finalW.toFixed(1) + 'px'; l.wrap.style.height = h.toFixed(1) + 'px'; }
+  });
 }
 function tightenAll(root){
   if(!root) return;
   const thumbs = root.querySelectorAll('.outfit-thumb');
   if(thumbs.length){
-    thumbs.forEach(t => proportionGroup(t, 210));
+    thumbs.forEach(t => proportionGroup(t, 300));
   } else {
     const layers = root.querySelectorAll('.ov-layer');
     if(!layers.length) return;
-    // Cap each layer so the WHOLE stack fits the stage's actual available
-    // height (a fixed guess broke down for two naturally-tall pieces, like a
-    // long-sleeve top over full-length pants, which together could exceed
-    // the modal and get silently clipped/scrolled instead of shrinking to fit).
-    const gap = 16 * Math.max(0, layers.length - 1);
-    const avail = root.clientHeight || 640;
-    const perLayerCap = Math.max(90, (avail - gap) / layers.length);
-    proportionGroup(root, perLayerCap);
+    proportionGroup(root, root.clientHeight || 640);
   }
 }
 function ovLayer(i, cls){
   const inner = i.image_url
     ? `<img src="${esc(i.image_url)}" alt="${esc(i.name)}">`
     : `<div class="flat" style="background:${i.color_hex||'#bbb'}">${esc(i.name)}</div>`;
-  return `<div class="ov-layer ${cls}">${inner}</div>`;
+  const kind = cls==='bottom' ? (isShorts(i) ? 'shorts' : 'pants') : 'top';
+  return `<div class="ov-layer ${cls}" data-kind="${kind}">${inner}</div>`;
 }
 function openOutfitView(items, title){
   const tops = items.filter(i=>typeOf(i)==='Top');
@@ -813,7 +831,8 @@ function outfitThumbHTML(o){
     if(!i) return '';
     const inner = i.image_url ? `<img src="${esc(i.image_url)}" alt="${esc(i.name)}">`
       : `<div class="ot-flat" style="background:${i.color_hex||'#bbb'}"></div>`;
-    return `<div class="ot-layer ${cls}">${inner}</div>`;
+    const kind = cls==='ot-bottom' ? (isShorts(i) ? 'shorts' : 'pants') : 'top';
+    return `<div class="ot-layer ${cls}" data-kind="${kind}">${inner}</div>`;
   };
   return `<div class="outfit-thumb">${layer(top,'ot-top')}${layer(bottom,'ot-bottom')}</div>`;
 }
