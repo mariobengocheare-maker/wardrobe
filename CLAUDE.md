@@ -34,6 +34,11 @@ Windows PC.
 - `static/theme.mp3` — home-page theme song, **committed** (not gitignored).
   The user uploaded this once and never wants to re-upload it, so it ships
   with the repo like any other asset.
+- `Start Wardrobe.bat` / `wardrobe.ico` — double-click launcher for a desktop
+  shortcut (starts `python app.py` minimized, then opens the browser to
+  `http://localhost:5000`). Committed, ships with every update. Keep the
+  `.bat` at the project root (it uses `%~dp0` to find `app.py` next to
+  itself) so a Desktop shortcut pointing at it keeps working after re-extract.
 
 ## Features (all working, verified)
 
