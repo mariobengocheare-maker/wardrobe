@@ -18,7 +18,7 @@ HTML/CSS/JS — no build step, no npm, no framework.
    ```
    python app.py
    ```
-5. Open your browser to: http://localhost:5000
+5. Open your browser to: http://localhost:5050
 
 The first run creates `wardrobe.db` and seeds your starting wardrobe plus
 the **Office** collection. All your data lives in that one file, on your
