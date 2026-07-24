@@ -4,12 +4,46 @@ Run with:  python app.py
 Then open: http://localhost:5050
 """
 
+import os
+import threading
+import time
+
 from flask import Flask, jsonify, render_template, request
 
 import db
 import imageproc
 
 app = Flask(__name__)
+
+# The desktop launcher starts this server detached, with no window — so
+# nothing closes it automatically when you're done. The frontend pings
+# /api/heartbeat every few seconds while a tab is open and fires
+# /api/shutdown the instant one closes; the watchdog thread below is the
+# fallback for anything that skips that (a crash, force-closing the
+# browser, the PC sleeping) — if no heartbeat arrives for a while, it shuts
+# the server down on its own so nothing lingers in Task Manager.
+_last_heartbeat = {"t": None}
+HEARTBEAT_TIMEOUT = 20
+
+
+@app.route("/api/heartbeat", methods=["POST"])
+def heartbeat():
+    _last_heartbeat["t"] = time.time()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/shutdown", methods=["POST"])
+def shutdown():
+    threading.Timer(0.2, lambda: os._exit(0)).start()
+    return jsonify({"ok": True})
+
+
+def _watchdog():
+    while True:
+        time.sleep(5)
+        t = _last_heartbeat["t"]
+        if t is not None and (time.time() - t) > HEARTBEAT_TIMEOUT:
+            os._exit(0)
 
 
 @app.route("/")
@@ -98,4 +132,11 @@ def remove_outfit(outfit_id):
 
 if __name__ == "__main__":
     db.init_db()
-    app.run(host="127.0.0.1", port=5050, debug=True)
+    threading.Thread(target=_watchdog, daemon=True).start()
+    # use_reloader=False: with it on, Flask's debug reloader runs a second
+    # "monitor" process that doesn't serve requests but would run its own
+    # copy of the watchdog above with no heartbeats ever reaching it — it'd
+    # shut itself down on a timer regardless of whether you're using the
+    # app, taking the real server with it. Not needed anyway: the desktop
+    # launcher always starts this fresh from freshly-downloaded files.
+    app.run(host="127.0.0.1", port=5050, debug=True, use_reloader=False)

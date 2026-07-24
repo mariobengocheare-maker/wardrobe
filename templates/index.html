@@ -119,6 +119,11 @@
   .subsection-head h3{margin:0; font-size:23px;}
   .subsection-head .n{color:var(--muted); font-size:13px;}
 
+  /* one column per category, side by side, so every type is browsable at once */
+  .wardrobe-columns{display:flex; gap:24px; align-items:flex-start; overflow-x:auto; padding-bottom:16px;}
+  .wardrobe-col{flex:0 0 280px; width:280px;}
+  .wardrobe-col-list{display:flex; flex-direction:column; gap:18px;}
+
   /* ---------- item grid ---------- */
   .grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:22px;}
   .card{
@@ -144,11 +149,14 @@
     position:absolute; top:12px; right:14px; z-index:3; width:26px; height:26px; border-radius:50%;
     background:var(--gold); color:#fff; display:none; align-items:center; justify-content:center; font-size:14px; box-shadow:var(--shadow-sm);
   }
-  .pending-ribbon{
-    position:absolute; z-index:5; top:19px; left:-42px; width:160px; text-align:center;
-    transform:rotate(-45deg); background:linear-gradient(180deg,#c2a25a,#9c7d34); color:#fff;
-    font-size:10.5px; letter-spacing:.16em; text-transform:uppercase; padding:5px 0;
-    box-shadow:0 2px 8px rgba(0,0,0,.25);
+  .pending-lock{
+    position:absolute; top:12px; left:12px; z-index:5; width:34px; height:34px; border-radius:50%;
+    background:rgba(20,17,12,.88); border:1.5px solid var(--gold); color:var(--gold);
+    display:flex; align-items:center; justify-content:center; font-size:15px; box-shadow:0 3px 10px rgba(0,0,0,.3);
+  }
+  .pending-vignette{
+    position:absolute; inset:0; z-index:4; pointer-events:none;
+    box-shadow:inset 0 0 0 3px rgba(168,134,63,.3), inset 0 0 46px 8px rgba(20,17,12,.4);
   }
   .pending-label{
     display:inline-flex; align-items:center; gap:5px; margin-top:8px; font-size:11px; color:#8a6d2b;
@@ -245,6 +253,8 @@
   .coll{background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow-sm); padding:26px 28px; margin-bottom:26px;}
   .coll-head{display:flex; align-items:flex-start; justify-content:space-between; flex-wrap:wrap; gap:12px;}
   .coll-head h3{margin:0; font-size:27px;}
+  .coll-toggle{background:none; border:none; cursor:pointer; color:var(--muted); font-size:15px; padding:0 8px 0 0; vertical-align:middle; line-height:1;}
+  .coll-toggle:hover{color:var(--gold);}
   .outfit-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:16px; margin-top:20px;}
   .outfit{border:1px solid var(--line); border-radius:14px; padding:14px; background:#fff; transition:.18s; cursor:pointer; position:relative;}
   .outfit:hover{box-shadow:var(--shadow); transform:translateY(-3px);}
@@ -318,6 +328,7 @@
     <button data-tab="wardrobe" class="active">My Wardrobe</button>
     <button data-tab="collections">Collections</button>
     <button data-tab="fit">Fit Maker</button>
+    <button data-tab="pending">Pending Purchase</button>
   </div>
 </nav>
 
@@ -353,6 +364,18 @@
       <button class="btn gold" onclick="openCollModal()">+ New Collection</button>
     </div>
     <div id="collList"></div>
+  </section>
+
+  <!-- PENDING PURCHASE -->
+  <section id="view-pending" class="view">
+    <div class="section-head">
+      <div>
+        <div class="kick">Locked until you buy them</div>
+        <h2>Pending Purchase <span class="count-pill" id="pendingCount"></span></h2>
+      </div>
+    </div>
+    <p class="meta" style="margin-bottom:22px">Pieces you've planned for but don't own yet. They still work in Fit Maker and Collections — just marked locked until you check them off.</p>
+    <div id="pendingBody"></div>
   </section>
 
   <!-- FIT MAKER -->
@@ -517,6 +540,15 @@ async function api(url, method='GET', body){
   const r = await fetch(url, opt);
   return r.json();
 }
+
+// --- keep the local server running only while this tab is open ---
+// The desktop launcher starts the server with no window, so nothing closes
+// it when you're done. Ping it every few seconds to say "still open," and
+// tell it to shut down the instant this tab closes — no more hunting it
+// down in Task Manager.
+fetch('/api/heartbeat', {method:'POST'}).catch(()=>{});
+setInterval(()=>{ fetch('/api/heartbeat', {method:'POST'}).catch(()=>{}); }, 4000);
+window.addEventListener('pagehide', ()=>{ navigator.sendBeacon('/api/shutdown'); });
 function tempLabel(lo, hi){
   if(lo==null && hi==null) return null;
   if(lo!=null && hi!=null) return `${lo}–${hi}°F`;
@@ -568,7 +600,15 @@ async function loadAll(){
   renderWardrobe();
   renderFit();
   renderCollections();
+  renderPending();
   refreshDatalists();
+}
+function renderPending(){
+  const locked = ITEMS.filter(i=>i.pending_purchase);
+  $('pendingCount').textContent = locked.length ? `${locked.length} locked` : '';
+  $('pendingBody').innerHTML = locked.length
+    ? `<div class="grid">${locked.map(i=>`<div class="card">${itemCardHTML(i)}</div>`).join('')}</div>`
+    : `<div class="empty">Nothing locked right now. Check "Pending purchase" on a piece to plan around it before you buy it.</div>`;
 }
 function refreshDatalists(){
   const cats = [...new Set(ITEMS.map(i=>i.category).filter(Boolean))];
@@ -579,7 +619,7 @@ function refreshDatalists(){
 
 // --- shared photo tile ---
 function pendingRibbon(i){
-  return i.pending_purchase ? '<div class="pending-ribbon">Pending</div>' : '';
+  return i.pending_purchase ? '<span class="pending-lock">🔒</span><div class="pending-vignette"></div>' : '';
 }
 function photoTile(i, {zoom=true, pick=false}={}){
   if(i.image_url){
@@ -645,11 +685,11 @@ function renderWardrobe(){
     return;
   }
   const shownCats = subFilter ? [subFilter] : cats;
-  $('wardrobeBody').innerHTML = shownCats.map(c=>`
-    <div class="subsection">
+  $('wardrobeBody').innerHTML = `<div class="wardrobe-columns">${shownCats.map(c=>`
+    <div class="wardrobe-col">
       <div class="subsection-head"><h3>${esc(c)}</h3><span class="n">${byCat[c].length} ${byCat[c].length===1?'piece':'pieces'}</span></div>
-      <div class="grid">${byCat[c].map(i=>`<div class="card">${itemCardHTML(i)}</div>`).join('')}</div>
-    </div>`).join('');
+      <div class="wardrobe-col-list">${byCat[c].map(i=>`<div class="card">${itemCardHTML(i)}</div>`).join('')}</div>
+    </div>`).join('')}</div>`;
 }
 function setSub(c){ subFilter = c; renderWardrobe(); }
 
@@ -959,7 +999,7 @@ async function delItem(id){
 }
 
 // --- fit maker ---
-function fitColHTML(type, items, collapsed){
+function fitColHTML(type, items, collapsed, prioritizePolo){
   const label = type==='Top' ? 'Tops' : 'Bottoms';
   if(!items.length){
     return `<div class="fit-col-head"><h4>${label}</h4></div><div class="empty" style="padding:30px 0">No ${label.toLowerCase()} yet.</div>`;
@@ -974,28 +1014,37 @@ function fitColHTML(type, items, collapsed){
         : '<div class="meta" style="font-size:12px">None picked</div>'
       }</div>`;
   }
-  return `<div class="fit-col-head"><h4>${label}</h4></div>
-    <div class="fit-col-grid">${items.map(i=>{
-      const sel = selectedFit.has(i.id) ? ' sel' : '';
-      return `<div class="card pick-card${sel}" onclick="toggleFit(${i.id})">${itemCardHTML(i,{pick:true})}</div>`;
-    }).join('')}</div>`;
+  // Group by category — one horizontal row of cards per category (e.g. all
+  // Long Sleeve Polos side by side), stacked so scrolling moves cleanly
+  // from one category to the next, same pattern as the My Wardrobe grid.
+  const byCat = {};
+  items.forEach(i=>{ (byCat[catOf(i)] = byCat[catOf(i)]||[]).push(i); });
+  let cats = Object.keys(byCat).sort();
+  if(prioritizePolo) cats = [...cats].sort((a, b) => (POLO_RE.test(b)?1:0) - (POLO_RE.test(a)?1:0));
+  const sections = cats.map(c => `
+    <div class="subsection">
+      <div class="subsection-head"><h3>${esc(c)}</h3><span class="n">${byCat[c].length} ${byCat[c].length===1?'piece':'pieces'}</span></div>
+      <div class="fit-col-grid">${byCat[c].map(i=>{
+        const sel = selectedFit.has(i.id) ? ' sel' : '';
+        return `<div class="card pick-card${sel}" onclick="toggleFit(${i.id})">${itemCardHTML(i,{pick:true})}</div>`;
+      }).join('')}</div>
+    </div>`).join('');
+  return `<div class="fit-col-head"><h4>${label}</h4></div>${sections}`;
 }
 const POLO_RE = /polo/i;
-function isPolo(i){ return POLO_RE.test((i.category||'') + ' ' + (i.name||'')); }
 function renderFit(){
   if(!ITEMS.length){ $('fitGrid').innerHTML='<div class="empty">Add pieces to your wardrobe first.</div>'; return; }
-  let tops = ITEMS.filter(i=>typeOf(i)==='Top');
+  const tops = ITEMS.filter(i=>typeOf(i)==='Top');
   const bottoms = ITEMS.filter(i=>typeOf(i)==='Bottom');
-  // Shorts read as more casual — once one's picked, surface polos first
-  // among the tops so the natural pairing is right there, not buried.
+  // Shorts read as more casual — once one's picked, surface polo categories
+  // first among the tops so the natural pairing is right there, not buried.
   const shortsPicked = bottoms.some(i => selectedFit.has(i.id) && isShorts(i));
-  if(shortsPicked) tops = [...tops].sort((a, b) => (isPolo(b)?1:0) - (isPolo(a)?1:0));
   const topsCollapsed = fitFocus === 'Top';
   const bottomsCollapsed = fitFocus === 'Bottom';
   $('fitGrid').innerHTML = `
     <div class="fit-columns">
-      <div class="fit-col${topsCollapsed?' collapsed':''}">${fitColHTML('Top', tops, topsCollapsed)}</div>
-      <div class="fit-col${bottomsCollapsed?' collapsed':''}">${fitColHTML('Bottom', bottoms, bottomsCollapsed)}</div>
+      <div class="fit-col${topsCollapsed?' collapsed':''}">${fitColHTML('Top', tops, topsCollapsed, shortsPicked)}</div>
+      <div class="fit-col${bottomsCollapsed?' collapsed':''}">${fitColHTML('Bottom', bottoms, bottomsCollapsed, false)}</div>
     </div>`;
   renderFitPanel();
 }
@@ -1048,6 +1097,11 @@ async function saveFit(){
 }
 
 // --- collections ---
+const collapsedColls = new Set();   // empty = every collection starts open
+function toggleColl(id){
+  collapsedColls.has(id) ? collapsedColls.delete(id) : collapsedColls.add(id);
+  renderCollections();
+}
 function renderCollections(){
   $('collCount').textContent = COLLECTIONS.length ? `${COLLECTIONS.length}` : '';
   if(!COLLECTIONS.length){ $('collList').innerHTML='<div class="empty">No collections yet. Create one to group your favorite outfits.</div>'; return; }
@@ -1061,6 +1115,7 @@ function renderCollections(){
           ? `<div class="coll-complete">🏆 Collection Complete</div>`
           : `<div class="coll-progress">${completeCount}/${totalCount} complete</div>`)
       : '';
+    const collapsed = collapsedColls.has(c.id);
     const outfits = c.outfits.map(o=>`
       <div class="outfit" onclick="viewOutfit(${o.id}, ${c.id})">
         <button class="outfit-del" onclick="event.stopPropagation();delOutfit(${o.id})">✕</button>
@@ -1071,7 +1126,10 @@ function renderCollections(){
     return `<div class="coll">
       <div class="coll-head">
         <div>
-          <h3>${esc(c.name)} <span class="count-pill">${c.outfits.length} outfits</span></h3>
+          <h3>
+            <button class="coll-toggle" onclick="toggleColl(${c.id})" title="${collapsed?'Expand':'Collapse'}">${collapsed?'▸':'▾'}</button>
+            ${esc(c.name)} <span class="count-pill">${c.outfits.length} outfits</span>
+          </h3>
           ${t?`<span class="temp" style="margin-top:10px">🌡 ${t}</span>`:''}
           ${progressHTML}
           ${c.notes?`<div class="meta" style="margin-top:8px">${esc(c.notes)}</div>`:''}
@@ -1081,7 +1139,7 @@ function renderCollections(){
           <button class="link" onclick="delColl(${c.id})">Delete</button>
         </div>
       </div>
-      <div class="outfit-grid">${outfits || '<div class="meta">No outfits yet — build one in Fit Maker.</div>'}</div>
+      ${collapsed ? '' : `<div class="outfit-grid">${outfits || '<div class="meta">No outfits yet — build one in Fit Maker.</div>'}</div>`}
     </div>`;
   }).join('');
   tightenAll($('collList'));
