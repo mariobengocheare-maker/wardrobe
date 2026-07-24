@@ -91,6 +91,55 @@ def remove_item(item_id):
     return jsonify({"ok": True})
 
 
+# --- Temperature classes --------------------------------------------------
+
+@app.route("/api/temp-classes", methods=["GET"])
+def get_temp_classes():
+    return jsonify(db.list_temp_classes())
+
+
+@app.route("/api/temp-classes", methods=["POST"])
+def create_temp_class():
+    new_id = db.add_temp_class(request.get_json(force=True))
+    return jsonify({"id": new_id}), 201
+
+
+@app.route("/api/temp-classes/<int:class_id>", methods=["DELETE"])
+def remove_temp_class(class_id):
+    db.delete_temp_class(class_id)
+    return jsonify({"ok": True})
+
+
+# --- Price notes (by brand + category) ------------------------------------
+
+@app.route("/api/price-notes", methods=["GET"])
+def get_price_notes():
+    return jsonify(db.list_price_notes())
+
+
+@app.route("/api/price-notes", methods=["POST"])
+def save_price_note():
+    data = request.get_json(force=True)
+    db.set_price_note(
+        data.get("brand", "").strip(), data.get("category", "").strip(), data.get("note", "").strip()
+    )
+    return jsonify({"ok": True})
+
+
+# --- Brands ----------------------------------------------------------------
+
+@app.route("/api/brands", methods=["GET"])
+def get_brands():
+    return jsonify(db.list_brands())
+
+
+@app.route("/api/brands", methods=["POST"])
+def create_brand():
+    data = request.get_json(force=True)
+    db.add_brand(data.get("name", ""))
+    return jsonify({"ok": True})
+
+
 # --- Collections ---------------------------------------------------------
 
 @app.route("/api/collections", methods=["GET"])

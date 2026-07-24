@@ -81,6 +81,27 @@ CREATE TABLE IF NOT EXISTS outfit_items (
     FOREIGN KEY (outfit_id) REFERENCES outfits(id) ON DELETE CASCADE,
     FOREIGN KEY (item_id)   REFERENCES items(id)   ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS temp_classes (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT NOT NULL,
+    icon        TEXT NOT NULL DEFAULT '🌡️',
+    temp_min    INTEGER NOT NULL,
+    temp_max    INTEGER NOT NULL,
+    sort_order  INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS price_notes (
+    brand       TEXT NOT NULL DEFAULT '',
+    category    TEXT NOT NULL DEFAULT '',
+    note        TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (brand, category)
+);
+
+CREATE TABLE IF NOT EXISTS brands (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT NOT NULL UNIQUE
+);
 """
 
 
@@ -92,6 +113,12 @@ def init_db():
     # Seed only if the wardrobe is empty.
     if conn.execute("SELECT COUNT(*) AS c FROM items").fetchone()["c"] == 0:
         _seed(conn)
+    if conn.execute("SELECT COUNT(*) AS c FROM temp_classes").fetchone()["c"] == 0:
+        _seed_temp_classes(conn)
+    if conn.execute("SELECT COUNT(*) AS c FROM brands").fetchone()["c"] == 0:
+        _seed_brands(conn)
+    if conn.execute("SELECT COUNT(*) AS c FROM price_notes").fetchone()["c"] == 0:
+        _seed_price_notes(conn)
     conn.close()
 
 
@@ -174,6 +201,43 @@ def _seed(conn):
             [(oid, pant_id), (oid, shirt_id)],
         )
 
+    conn.commit()
+
+
+# name, icon, temp_min, temp_max
+DEFAULT_TEMP_CLASSES = [
+    ("Cool", "❄️", 60, 73),
+    ("Versatile", "🌤️", 65, 82),
+    ("Hot", "🌡️", 74, 89),
+]
+
+
+def _seed_temp_classes(conn):
+    conn.executemany(
+        "INSERT INTO temp_classes (name, icon, temp_min, temp_max, sort_order) VALUES (?, ?, ?, ?, ?)",
+        [(name, icon, lo, hi, i) for i, (name, icon, lo, hi) in enumerate(DEFAULT_TEMP_CLASSES)],
+    )
+    conn.commit()
+
+
+DEFAULT_BRANDS = ["Ralph Lauren", "J.Crew"]
+
+# brand, category, note
+DEFAULT_PRICE_NOTES = [
+    ("Ralph Lauren", "Long Sleeve Polo", "Ralph Lauren Long Sleeve Polos go for $10-15 on average on Depop."),
+]
+
+
+def _seed_brands(conn):
+    conn.executemany("INSERT OR IGNORE INTO brands (name) VALUES (?)", [(b,) for b in DEFAULT_BRANDS])
+    conn.commit()
+
+
+def _seed_price_notes(conn):
+    conn.executemany(
+        "INSERT OR IGNORE INTO price_notes (brand, category, note) VALUES (?, ?, ?)",
+        DEFAULT_PRICE_NOTES,
+    )
     conn.commit()
 
 
@@ -337,6 +401,81 @@ def delete_outfit(outfit_id):
     conn = get_conn()
     conn.execute("DELETE FROM outfits WHERE id = ?", (outfit_id,))
     conn.commit()
+    conn.close()
+
+
+# --- Temperature classes ---------------------------------------------------
+
+def list_temp_classes():
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT * FROM temp_classes ORDER BY sort_order, temp_min").fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def add_temp_class(data):
+    conn = get_conn()
+    max_order = conn.execute(
+        "SELECT COALESCE(MAX(sort_order), -1) AS m FROM temp_classes").fetchone()["m"]
+    cur = conn.execute(
+        "INSERT INTO temp_classes (name, icon, temp_min, temp_max, sort_order) VALUES (?, ?, ?, ?, ?)",
+        (
+            data.get("name", "").strip() or "Custom",
+            (data.get("icon", "").strip() or "🌡️"),
+            _int_or_none(data.get("temp_min")) or 0,
+            _int_or_none(data.get("temp_max")) or 0,
+            max_order + 1,
+        ),
+    )
+    conn.commit()
+    new_id = cur.lastrowid
+    conn.close()
+    return new_id
+
+
+def delete_temp_class(class_id):
+    conn = get_conn()
+    conn.execute("DELETE FROM temp_classes WHERE id = ?", (class_id,))
+    conn.commit()
+    conn.close()
+
+
+# --- Price notes (by brand + category) -------------------------------------
+
+def list_price_notes():
+    conn = get_conn()
+    rows = conn.execute("SELECT * FROM price_notes").fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def set_price_note(brand, category, note):
+    conn = get_conn()
+    conn.execute(
+        """INSERT INTO price_notes (brand, category, note) VALUES (?, ?, ?)
+           ON CONFLICT(brand, category) DO UPDATE SET note = excluded.note""",
+        (brand, category, note),
+    )
+    conn.commit()
+    conn.close()
+
+
+# --- Brands ------------------------------------------------------------
+
+def list_brands():
+    conn = get_conn()
+    rows = conn.execute("SELECT * FROM brands ORDER BY name").fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def add_brand(name):
+    conn = get_conn()
+    name = (name or "").strip()
+    if name:
+        conn.execute("INSERT OR IGNORE INTO brands (name) VALUES (?)", (name,))
+        conn.commit()
     conn.close()
 
 
