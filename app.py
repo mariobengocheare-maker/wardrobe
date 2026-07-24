@@ -1,7 +1,7 @@
 """Wardrobe tracker — Flask backend.
 
 Run with:  python app.py
-Then open: http://localhost:5000
+Then open: http://localhost:5050
 """
 
 from flask import Flask, jsonify, render_template, request
@@ -98,4 +98,4 @@ def remove_outfit(outfit_id):
 
 if __name__ == "__main__":
     db.init_db()
-    app.run(host="127.0.0.1", port=5000, debug=True)
+    app.run(host="127.0.0.1", port=5050, debug=True)

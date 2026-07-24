@@ -6,6 +6,16 @@ HTML/CSS/JS — no build step, no npm, no framework.
 
 ## Run it (Windows)
 
+**Desktop shortcut (recommended for everyday use):** double-click
+`Create Wardrobe Desktop Icon.vbs` once — it adds a "Wardrobe" icon to
+your Desktop. From then on, just double-click that icon: it starts the
+app with **no console window at all** and opens it in your browser
+automatically. If you already have an older "Wardrobe" icon that opens a
+black terminal window first, double-click the `.vbs` again to switch it
+over to the instant version.
+
+**Manual:**
+
 1. Install Python 3 from python.org if you don't have it (check "Add
    Python to PATH" during install).
 2. Open the folder in File Explorer, click the address bar, type `cmd`,
@@ -18,7 +28,7 @@ HTML/CSS/JS — no build step, no npm, no framework.
    ```
    python app.py
    ```
-5. Open your browser to: http://localhost:5000
+5. Open your browser to: http://localhost:5050
 
 The first run creates `wardrobe.db` and seeds your starting wardrobe plus
 the **Office** collection. All your data lives in that one file, on your
