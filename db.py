@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS items (
     temp_min    INTEGER,
     temp_max    INTEGER,
     notes       TEXT NOT NULL DEFAULT '',
+    pending_purchase INTEGER NOT NULL DEFAULT 0,
     created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -101,6 +102,8 @@ def _migrate(conn):
         conn.execute("ALTER TABLE items ADD COLUMN piece_type TEXT NOT NULL DEFAULT ''")
     if "image_url" not in cols:
         conn.execute("ALTER TABLE items ADD COLUMN image_url TEXT NOT NULL DEFAULT ''")
+    if "pending_purchase" not in cols:
+        conn.execute("ALTER TABLE items ADD COLUMN pending_purchase INTEGER NOT NULL DEFAULT 0")
     conn.commit()
 
 
@@ -188,8 +191,8 @@ def add_item(data):
     cur = conn.execute(
         """INSERT INTO items
            (name, category, piece_type, color, color_hex, brand, material,
-            image_url, temp_min, temp_max, notes)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            image_url, temp_min, temp_max, notes, pending_purchase)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             data.get("name", "").strip(),
             data.get("category", "").strip(),
@@ -202,6 +205,7 @@ def add_item(data):
             _int_or_none(data.get("temp_min")),
             _int_or_none(data.get("temp_max")),
             data.get("notes", "").strip(),
+            1 if data.get("pending_purchase") else 0,
         ),
     )
     conn.commit()
@@ -216,7 +220,7 @@ def update_item(item_id, data):
         """UPDATE items SET
              name = ?, category = ?, piece_type = ?, color = ?, color_hex = ?,
              brand = ?, material = ?, image_url = ?, temp_min = ?, temp_max = ?,
-             notes = ?
+             notes = ?, pending_purchase = ?
            WHERE id = ?""",
         (
             data.get("name", "").strip(),
@@ -230,6 +234,7 @@ def update_item(item_id, data):
             _int_or_none(data.get("temp_min")),
             _int_or_none(data.get("temp_max")),
             data.get("notes", "").strip(),
+            1 if data.get("pending_purchase") else 0,
             item_id,
         ),
     )

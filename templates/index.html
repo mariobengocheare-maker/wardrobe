@@ -144,6 +144,16 @@
     position:absolute; top:12px; right:14px; z-index:3; width:26px; height:26px; border-radius:50%;
     background:var(--gold); color:#fff; display:none; align-items:center; justify-content:center; font-size:14px; box-shadow:var(--shadow-sm);
   }
+  .pending-ribbon{
+    position:absolute; z-index:5; top:19px; left:-42px; width:160px; text-align:center;
+    transform:rotate(-45deg); background:linear-gradient(180deg,#c2a25a,#9c7d34); color:#fff;
+    font-size:10.5px; letter-spacing:.16em; text-transform:uppercase; padding:5px 0;
+    box-shadow:0 2px 8px rgba(0,0,0,.25);
+  }
+  .pending-label{
+    display:inline-flex; align-items:center; gap:5px; margin-top:8px; font-size:11px; color:#8a6d2b;
+    background:var(--gold-soft); padding:4px 10px; border-radius:999px; align-self:flex-start; letter-spacing:.06em; text-transform:uppercase;
+  }
   .card-body{padding:16px 18px 18px; flex:1; display:flex; flex-direction:column;}
   .card-body h3{margin:0 0 6px; font-size:19px; line-height:1.22;}
   .meta{color:var(--muted); font-size:13px; margin:2px 0;}
@@ -241,6 +251,10 @@
   .outfit .oname{font-weight:600; margin-top:10px; font-size:14px; text-align:center;}
   .outfit-del{position:absolute; top:10px; right:10px; z-index:3; width:24px; height:24px; border-radius:50%; background:rgba(255,253,249,.92); border:1px solid var(--line); color:var(--muted); font-size:12px; display:flex; align-items:center; justify-content:center; cursor:pointer;}
   .outfit-del:hover{color:var(--gold); border-color:var(--gold);}
+  .owned-check{position:absolute; top:10px; left:10px; z-index:3; width:24px; height:24px; border-radius:50%; background:#2f8f5b; color:#fff; display:flex; align-items:center; justify-content:center; font-size:12px; box-shadow:var(--shadow-sm);}
+  .ov-pending-tag{position:absolute; top:6px; left:6px; z-index:5; background:linear-gradient(180deg,#c2a25a,#9c7d34); color:#fff; font-size:10px; letter-spacing:.12em; text-transform:uppercase; padding:4px 10px; border-radius:999px; box-shadow:0 2px 6px rgba(0,0,0,.2);}
+  .coll-progress{font-size:12px; color:var(--muted); margin-top:8px; letter-spacing:.04em;}
+  .coll-complete{display:inline-flex; align-items:center; gap:6px; margin-top:8px; font-size:12px; letter-spacing:.14em; text-transform:uppercase; color:#9c7d34; font-weight:700;}
   .outfit-thumb{min-height:150px; border-radius:10px; overflow:hidden; padding:14px 0 10px;
     display:flex; flex-direction:column; align-items:center; justify-content:center;
     background:radial-gradient(120% 90% at 50% 10%, #fffefb 0%, #f0eadd 62%, #e6decd 100%);}
@@ -422,6 +436,9 @@
       </div></div>
     <div class="field"><label>Notes</label>
       <textarea id="f_notes" rows="2" placeholder="Anything worth remembering"></textarea></div>
+    <label style="display:flex; align-items:center; gap:8px; margin:-4px 0 15px; font-size:12px; color:var(--muted); text-transform:none; letter-spacing:0; cursor:pointer">
+      <input type="checkbox" id="f_pending_purchase" style="width:auto"> Pending purchase — I don't own this piece yet
+    </label>
     <div class="modal-actions">
       <button class="link" onclick="closeModal('itemModal')">Cancel</button>
       <button class="btn gold" onclick="saveItem()">Save</button>
@@ -561,9 +578,13 @@ function refreshDatalists(){
 }
 
 // --- shared photo tile ---
+function pendingRibbon(i){
+  return i.pending_purchase ? '<div class="pending-ribbon">Pending</div>' : '';
+}
 function photoTile(i, {zoom=true, pick=false}={}){
   if(i.image_url){
     return `<div class="photo-wrap" ${zoom?`onclick="event.stopPropagation();openLightbox(${i.id})"`:''}>
+      ${pendingRibbon(i)}
       <div class="badges">
         <span class="tag type">${esc(typeOf(i))}</span>
         ${i.category?`<span class="tag">${esc(i.category)}</span>`:''}
@@ -574,6 +595,7 @@ function photoTile(i, {zoom=true, pick=false}={}){
   }
   const noimgClick = pick ? '' : `onclick="event.stopPropagation();openItemModal(${i.id})"`;
   return `<div class="photo-wrap">
+    ${pendingRibbon(i)}
     <div class="badges">
       <span class="tag type">${esc(typeOf(i))}</span>
       ${i.category?`<span class="tag">${esc(i.category)}</span>`:''}
@@ -595,6 +617,7 @@ function itemCardHTML(i, {pick=false}={}){
       ${i.color?`<div class="meta">${esc(i.color)}</div>`:''}
       ${i.material?`<div class="meta">${esc(i.material)}</div>`:''}
       ${t?`<span class="temp">🌡 ${t}</span>`:''}
+      ${i.pending_purchase?'<div class="pending-label">Not owned yet</div>':''}
       ${!pick?`<div class="card-actions">
         <button class="link" onclick="event.stopPropagation();openItemModal(${i.id})">Edit</button>
         <button class="link" onclick="event.stopPropagation();delItem(${i.id})">Remove</button>
@@ -806,7 +829,8 @@ function ovLayer(i, cls){
     ? `<img src="${esc(i.image_url)}" alt="${esc(i.name)}">`
     : `<div class="flat" style="background:${i.color_hex||'#bbb'}">${esc(i.name)}</div>`;
   const kind = cls==='bottom' ? (isShorts(i) ? 'shorts' : 'pants') : 'top';
-  return `<div class="ov-layer ${cls}" data-kind="${kind}">${inner}</div>`;
+  const pendingTag = i.pending_purchase ? '<span class="ov-pending-tag">Pending</span>' : '';
+  return `<div class="ov-layer ${cls}" data-kind="${kind}">${pendingTag}${inner}</div>`;
 }
 function openOutfitView(items, title){
   const tops = items.filter(i=>typeOf(i)==='Top');
@@ -824,6 +848,9 @@ function openOutfitView(items, title){
 }
 function closeOutfitView(){ $('outfitView').classList.remove('open'); }
 $('outfitView').addEventListener('click', e=>{ if(e.target.id==='outfitView') closeOutfitView(); });
+function outfitOwned(o){
+  return o.items.length>0 && o.items.every(i=>!i.pending_purchase);
+}
 function outfitThumbHTML(o){
   const top = o.items.find(i=>typeOf(i)==='Top');
   const bottom = o.items.find(i=>typeOf(i)==='Bottom');
@@ -904,6 +931,7 @@ function openItemModal(id){
   $('f_image_link').value = (img && !img.startsWith('data:')) ? img : '';
   $('f_image_file').value = '';
   if($('f_remove_bg')) $('f_remove_bg').checked = true;
+  $('f_pending_purchase').checked = editing ? !!editing.pending_purchase : false;
   setPreview(img);
   $('itemModal').classList.add('open');
 }
@@ -913,6 +941,7 @@ async function saveItem(){
     color:$('f_color').value, color_hex:$('f_color_hex').value, brand:$('f_brand').value,
     material:$('f_material').value, image_url:$('f_image_url').value,
     temp_min:$('f_temp_min').value, temp_max:$('f_temp_max').value, notes:$('f_notes').value,
+    pending_purchase: $('f_pending_purchase').checked,
   };
   if(!payload.name.trim()){ $('f_name').focus(); return; }
   const id = $('f_id').value;
@@ -1024,9 +1053,18 @@ function renderCollections(){
   if(!COLLECTIONS.length){ $('collList').innerHTML='<div class="empty">No collections yet. Create one to group your favorite outfits.</div>'; return; }
   $('collList').innerHTML = COLLECTIONS.map(c=>{
     const t = tempLabel(c.temp_min, c.temp_max);
+    const totalCount = c.outfits.length;
+    const completeCount = c.outfits.filter(outfitOwned).length;
+    const allComplete = totalCount>0 && completeCount===totalCount;
+    const progressHTML = totalCount>0
+      ? (allComplete
+          ? `<div class="coll-complete">🏆 Collection Complete</div>`
+          : `<div class="coll-progress">${completeCount}/${totalCount} complete</div>`)
+      : '';
     const outfits = c.outfits.map(o=>`
       <div class="outfit" onclick="viewOutfit(${o.id}, ${c.id})">
         <button class="outfit-del" onclick="event.stopPropagation();delOutfit(${o.id})">✕</button>
+        ${outfitOwned(o)?'<span class="owned-check" title="You own this fit">✓</span>':''}
         ${outfitThumbHTML(o)}
         <div class="oname">${esc(o.name||'Outfit')}</div>
       </div>`).join('');
@@ -1035,6 +1073,7 @@ function renderCollections(){
         <div>
           <h3>${esc(c.name)} <span class="count-pill">${c.outfits.length} outfits</span></h3>
           ${t?`<span class="temp" style="margin-top:10px">🌡 ${t}</span>`:''}
+          ${progressHTML}
           ${c.notes?`<div class="meta" style="margin-top:8px">${esc(c.notes)}</div>`:''}
         </div>
         <div style="display:flex; gap:16px;">
