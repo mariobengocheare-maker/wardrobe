@@ -3,19 +3,17 @@
 Solo-user local tool for tracking a personal wardrobe. Flask + vanilla
 HTML/CSS/JS — **no build step, no npm install, no React/Tailwind/TypeScript**.
 Runs as `python app.py` on **port 5050** (see port note below), opened at
-`http://localhost:5050` on the user's own Windows PC.
+`http://localhost:5050` on the user's own Windows PC. Has its own
+Desktop-icon launcher (see below) that opens with **no console window at
+all** — same approach as URTO.
 
 **⚠️ Port note:** this app used to default to port 5000, same as the
 user's other local app, **URTO** (`mariobengocheare-maker/urto-git`).
 Since both are separate Flask dev servers that can be running at once,
-sharing a port meant whichever app started first "won" it — `Start
-Wardrobe.bat` would still open `localhost:5000` even when its own
-`python app.py` failed to bind (port already taken by URTO), so clicking
-to open Wardrobe just showed URTO instead. Moved Wardrobe to 5050 to fix
-this and made the `.bat` poll for its own server actually answering
-before opening the browser, instead of a fixed sleep. **Do not move it
-back to 5000** or reuse any other port URTO (or any future local app like
-this) might use.
+sharing a port meant whichever app started first "won" it, so clicking to
+open Wardrobe while URTO was already running just showed URTO instead.
+Moved Wardrobe to 5050 to fix this. **Do not move it back to 5000** or
+reuse any other port URTO (or any future local app like this) might use.
 
 ## User context (read this first)
 
@@ -46,12 +44,9 @@ this) might use.
 - `static/theme.mp3` — home-page theme song, **committed** (not gitignored).
   The user uploaded this once and never wants to re-upload it, so it ships
   with the repo like any other asset.
-- `Start Wardrobe.bat` / `wardrobe.ico` — double-click launcher for a desktop
-  shortcut (starts `python app.py` minimized, polls `127.0.0.1:5050` until
-  the server actually answers — up to ~15s — then opens the browser to
-  `http://localhost:5050`). Committed, ships with every update. Keep the
-  `.bat` at the project root (it uses `%~dp0` to find `app.py` next to
-  itself) so a Desktop shortcut pointing at it keeps working after re-extract.
+- `launch_desktop.pyw` — Windows double-click entry point. Checks if the server's already up on `127.0.0.1:5050`; if not, spawns `app.py` detached/hidden via `sys.executable` (which is `pythonw.exe` when this `.pyw` itself was launched that way — no console window at any point), waits for it to come up, then opens the browser. Re-launching while already running just opens another browser tab instead of a second server. **Replaced `Start Wardrobe.bat`** (removed) — a `.bat` always runs in a visible terminal window and its `start /min python app.py` still left a real (just-minimized) console around for the server; `.pyw` via `pythonw.exe` has no console at all, for the launcher or the server it spawns. Mirrors URTO's launcher — keep them in sync if the approach changes.
+- `Create Wardrobe Desktop Icon.vbs` — one-time setup the user double-clicks to add a "Wardrobe" Desktop shortcut pointing at `launch_desktop.pyw`, with `wardrobe.ico` as its icon. Resolves its own folder via `WScript.ScriptFullName` so it works regardless of where the project folder lives. Re-run it to repoint an old shortcut that still targets the removed `.bat`.
+- `wardrobe.ico` — the desktop shortcut's icon. Committed, ships with every update.
 
 ## Features (all working, verified)
 
