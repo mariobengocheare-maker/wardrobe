@@ -140,6 +140,49 @@ def create_brand():
     return jsonify({"ok": True})
 
 
+# --- Categories (styles) ----------------------------------------------
+
+@app.route("/api/categories", methods=["GET"])
+def get_categories():
+    return jsonify(db.list_categories())
+
+
+@app.route("/api/categories", methods=["POST"])
+def create_category():
+    data = request.get_json(force=True)
+    db.add_category(data.get("name", ""), data.get("piece_type", "Top"))
+    return jsonify({"ok": True})
+
+
+@app.route("/api/category-temp-defaults", methods=["GET"])
+def get_category_temp_defaults():
+    return jsonify(db.list_category_temp_defaults())
+
+
+@app.route("/api/category-brand-defaults", methods=["GET"])
+def get_category_brand_defaults():
+    return jsonify(db.list_category_brand_defaults())
+
+
+@app.route("/api/category-material-defaults", methods=["GET"])
+def get_category_material_defaults():
+    return jsonify(db.list_category_material_defaults())
+
+
+# --- Materials ---------------------------------------------------------
+
+@app.route("/api/materials", methods=["GET"])
+def get_materials():
+    return jsonify(db.list_materials())
+
+
+@app.route("/api/materials", methods=["POST"])
+def create_material():
+    data = request.get_json(force=True)
+    db.add_material(data.get("name", ""))
+    return jsonify({"ok": True})
+
+
 # --- Collections ---------------------------------------------------------
 
 @app.route("/api/collections", methods=["GET"])

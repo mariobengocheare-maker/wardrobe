@@ -222,6 +222,11 @@
     margin-top:10px; font-size:12.5px; color:var(--ink); background:#fdf8ee; border:1px solid var(--line);
     padding:9px 13px; border-radius:10px; display:flex; align-items:center; flex-wrap:wrap; gap:6px;
   }
+  .depop-badge{
+    display:inline-flex; align-items:center; justify-content:center; flex:none;
+    width:22px; height:22px; border-radius:50%; background:#e2231a; color:#fff;
+    font-weight:700; font-size:13px; font-family:Georgia,"Times New Roman",serif; line-height:1;
+  }
 
   /* image picker in the form */
   .imgpick{display:flex; gap:16px; align-items:flex-start;}
@@ -456,15 +461,14 @@
     </div>
     <div class="field"><label>Name</label>
       <input id="f_name" placeholder="e.g. Long Sleeve Polo — Cream"></div>
-    <div class="row2">
-      <div class="field"><label>Type</label>
-        <select id="f_piece_type">
-          <option value="Top">Top</option>
-          <option value="Bottom">Bottom</option>
-        </select></div>
-      <div class="field"><label>Category</label>
-        <input id="f_category" list="catlist" placeholder="e.g. Long Sleeve Polo">
-        <datalist id="catlist"></datalist></div>
+    <div class="field"><label>Type</label>
+      <div class="brand-picker" id="typePicker"></div>
+      <input type="hidden" id="f_piece_type" value="Top">
+    </div>
+    <div class="field"><label>Style</label>
+      <div class="brand-picker" id="categoryPicker"></div>
+      <div class="hint" id="categoryCustomNote" style="display:none"></div>
+      <input type="hidden" id="f_category">
     </div>
     <div class="row2">
       <div class="field"><label>Color</label>
@@ -478,7 +482,10 @@
       <input type="hidden" id="f_brand">
     </div>
     <div class="field"><label>Material</label>
-      <input id="f_material" placeholder="e.g. Pima cotton"></div>
+      <div class="brand-picker" id="materialPicker"></div>
+      <div class="hint" id="materialCustomNote" style="display:none"></div>
+      <input type="hidden" id="f_material">
+    </div>
     <div class="field"><label>Ideal temperature</label>
       <div class="temp-class-picker" id="tempClassPicker"></div>
       <div class="hint" id="tempClassCustomNote" style="display:none"></div>
@@ -529,6 +536,36 @@
     <div class="modal-actions">
       <button class="link" onclick="closeModal('brandModal')">Cancel</button>
       <button class="btn gold" onclick="saveBrand()">Add Brand</button>
+    </div>
+  </div>
+</div>
+
+<!-- ADD STYLE MODAL -->
+<div class="modal-back" id="categoryModal">
+  <div class="modal" style="max-width:360px;">
+    <h3>New Style</h3>
+    <div class="field"><label>Name</label>
+      <input id="category_name" placeholder="e.g. Chino Shorts"></div>
+    <div class="field"><label>Type</label>
+      <div class="brand-picker" id="categoryTypePicker"></div>
+      <input type="hidden" id="category_piece_type" value="Top">
+    </div>
+    <div class="modal-actions">
+      <button class="link" onclick="closeModal('categoryModal')">Cancel</button>
+      <button class="btn gold" onclick="saveCategory()">Add Style</button>
+    </div>
+  </div>
+</div>
+
+<!-- ADD MATERIAL MODAL -->
+<div class="modal-back" id="materialModal">
+  <div class="modal" style="max-width:360px;">
+    <h3>New Material</h3>
+    <div class="field"><label>Name</label>
+      <input id="material_name" placeholder="e.g. Merino Wool"></div>
+    <div class="modal-actions">
+      <button class="link" onclick="closeModal('materialModal')">Cancel</button>
+      <button class="btn gold" onclick="saveMaterial()">Add Material</button>
     </div>
   </div>
 </div>
@@ -591,7 +628,8 @@
 </div>
 
 <script>
-let ITEMS = [], COLLECTIONS = [], TEMP_CLASSES = [], PRICE_NOTES = {}, BRANDS = [];
+let ITEMS = [], COLLECTIONS = [], TEMP_CLASSES = [], PRICE_NOTES = {}, BRANDS = [], CATEGORIES = [], CATEGORY_TEMP_DEFAULTS = {};
+let MATERIALS = [], CATEGORY_BRAND_DEFAULTS = {}, CATEGORY_MATERIAL_DEFAULTS = {};
 function priceNoteKey(brand, category){ return (brand||'') + '|' + (category||''); }
 const selectedFit = new Set();
 let wardrobeType = 'Top';   // Tops | Bottoms
@@ -664,6 +702,11 @@ async function loadAll(){
   COLLECTIONS = await api('/api/collections');
   TEMP_CLASSES = await api('/api/temp-classes');
   BRANDS = await api('/api/brands');
+  CATEGORIES = await api('/api/categories');
+  CATEGORY_TEMP_DEFAULTS = await api('/api/category-temp-defaults');
+  MATERIALS = await api('/api/materials');
+  CATEGORY_BRAND_DEFAULTS = await api('/api/category-brand-defaults');
+  CATEGORY_MATERIAL_DEFAULTS = await api('/api/category-material-defaults');
   const notes = await api('/api/price-notes');
   PRICE_NOTES = {};
   notes.forEach(n => { PRICE_NOTES[priceNoteKey(n.brand, n.category)] = n.note; });
@@ -671,7 +714,17 @@ async function loadAll(){
   renderFit();
   renderCollections();
   renderPending();
-  refreshDatalists();
+}
+function tempIconFor(min, max){
+  if(min==null || max==null || !TEMP_CLASSES.length) return '🌡';
+  const exact = TEMP_CLASSES.find(t=>t.temp_min===min && t.temp_max===max);
+  if(exact) return exact.icon;
+  let best=null, bestOverlap=-1;
+  TEMP_CLASSES.forEach(t=>{
+    const overlap = Math.min(max,t.temp_max) - Math.max(min,t.temp_min);
+    if(overlap>bestOverlap){ bestOverlap=overlap; best=t; }
+  });
+  return (best && bestOverlap>0) ? best.icon : '🌡';
 }
 function renderPending(){
   const locked = ITEMS.filter(i=>i.pending_purchase);
@@ -680,11 +733,6 @@ function renderPending(){
     ? `<div class="grid">${locked.map(i=>`<div class="card">${itemCardHTML(i)}</div>`).join('')}</div>`
     : `<div class="empty">Nothing locked right now. Check "Pending purchase" on a piece to plan around it before you buy it.</div>`;
 }
-function refreshDatalists(){
-  const cats = [...new Set(ITEMS.map(i=>i.category).filter(Boolean))];
-  $('catlist').innerHTML = cats.map(c=>`<option value="${esc(c)}">`).join('');
-}
-
 // --- shared photo tile ---
 function pendingRibbon(i){
   return i.pending_purchase ? '<span class="pending-lock">🔒</span><div class="pending-vignette"></div>' : '';
@@ -724,7 +772,7 @@ function itemCardHTML(i, {pick=false}={}){
       ${i.brand?`<div class="meta"><b>${esc(i.brand)}</b></div>`:''}
       ${i.color?`<div class="meta">${esc(i.color)}</div>`:''}
       ${i.material?`<div class="meta">${esc(i.material)}</div>`:''}
-      ${t?`<span class="temp">🌡 ${t}</span>`:''}
+      ${t?`<span class="temp">${tempIconFor(i.temp_min,i.temp_max)} ${t}</span>`:''}
       ${i.pending_purchase?'<div class="pending-label">Not owned yet</div>':''}
       ${!pick?`<div class="card-actions">
         <button class="link" onclick="event.stopPropagation();openItemModal(${i.id})">Edit</button>
@@ -772,7 +820,7 @@ function openLightbox(id){
     ${i.brand?`<div class="meta" style="font-size:15px"><b>${esc(i.brand)}</b></div>`:''}
     ${i.color?`<div class="meta">Color · ${esc(i.color)}</div>`:''}
     ${i.material?`<div class="meta">Material · ${esc(i.material)}</div>`:''}
-    ${t?`<span class="temp">🌡 ${t}</span>`:''}
+    ${t?`<span class="temp">${tempIconFor(i.temp_min,i.temp_max)} ${t}</span>`:''}
     ${i.pending_purchase?`<div class="pending-label" style="margin-top:12px">🔒 Not owned yet</div><div class="price-note" id="lb_price_note"></div>`:''}
     ${i.notes?`<div class="meta" style="margin-top:14px">${esc(i.notes)}</div>`:''}
     <div style="margin-top:22px"><button class="btn" onclick="openItemModal(${i.id});closeLightbox()">Edit Piece</button></div>`;
@@ -789,7 +837,7 @@ function renderLightboxPriceNote(brand, category){
   const label = [brand, category].filter(Boolean).join(' ') || 'this type';
   const args = `'${qarg(brand)}','${qarg(category)}'`;
   box.innerHTML = note
-    ? `<span>🏷️</span><span>${esc(note)}</span><button class="link" style="padding:0" onclick="editPriceNote(${args})">Edit</button>`
+    ? `<span class="depop-badge">d</span><span>${esc(note)}</span><button class="link" style="padding:0" onclick="editPriceNote(${args})">Edit</button>`
     : `<span class="meta" style="margin:0">No price note yet for ${esc(label)}.</span><button class="link" style="padding:0" onclick="editPriceNote(${args})">Add one</button>`;
 }
 function editPriceNote(brand, category){
@@ -1104,9 +1152,12 @@ function renderBrandPicker(){
     noteEl.style.display = 'none';
   }
 }
-function selectBrand(name){
-  $('f_brand').value = ($('f_brand').value === name) ? '' : name;   // click again to clear
+function applyBrand(name){
+  $('f_brand').value = name;
   renderBrandPicker();
+}
+function selectBrand(name){
+  applyBrand($('f_brand').value === name ? '' : name);   // click again to clear
 }
 function openAddBrand(){
   $('brand_name').value = '';
@@ -1118,8 +1169,114 @@ async function saveBrand(){
   await api('/api/brands','POST',{name});
   closeModal('brandModal');
   BRANDS = await api('/api/brands');
-  $('f_brand').value = name;
-  renderBrandPicker();
+  applyBrand(name);
+}
+function renderMaterialPicker(){
+  const cur = $('f_material').value;
+  const matched = MATERIALS.some(m=>m.name===cur);
+  const chips = MATERIALS.map(m=>{
+    const sel = m.name===cur ? ' sel' : '';
+    return `<button type="button" class="brand-chip${sel}" onclick="selectMaterial('${qarg(m.name)}')">${esc(m.name)}</button>`;
+  }).join('');
+  $('materialPicker').innerHTML = chips + `<button type="button" class="brand-chip brand-chip-add" onclick="openAddMaterial()">+ Add material</button>`;
+  const noteEl = $('materialCustomNote');
+  if(!matched && cur){
+    noteEl.style.display = 'block';
+    noteEl.textContent = `Current: ${cur} (not in your material list)`;
+  } else {
+    noteEl.style.display = 'none';
+  }
+}
+function applyMaterial(name){
+  $('f_material').value = name;
+  renderMaterialPicker();
+}
+function selectMaterial(name){
+  applyMaterial($('f_material').value === name ? '' : name);
+}
+function openAddMaterial(){
+  $('material_name').value = '';
+  $('materialModal').classList.add('open');
+}
+async function saveMaterial(){
+  const name = $('material_name').value.trim();
+  if(!name) return;
+  await api('/api/materials','POST',{name});
+  closeModal('materialModal');
+  MATERIALS = await api('/api/materials');
+  applyMaterial(name);
+}
+function renderTypePicker(){
+  const cur = $('f_piece_type').value || 'Top';
+  $('typePicker').innerHTML = ['Top','Bottom'].map(v=>
+    `<button type="button" class="brand-chip${v===cur?' sel':''}" onclick="selectType('${v}')">${v}</button>`
+  ).join('');
+}
+function selectType(val){
+  if($('f_piece_type').value === val) return;
+  $('f_piece_type').value = val;
+  $('f_category').value = '';   // the old style may not even apply to the new type
+  renderTypePicker();
+  renderCategoryPicker();
+}
+function renderCategoryPicker(){
+  const type = $('f_piece_type').value || 'Top';
+  const cur = $('f_category').value;
+  const options = CATEGORIES.filter(c => c.piece_type === type);
+  const matched = options.some(c=>c.name===cur);
+  const chips = options.map(c=>{
+    const sel = c.name===cur ? ' sel' : '';
+    return `<button type="button" class="brand-chip${sel}" onclick="selectCategory('${qarg(c.name)}')">${esc(c.name)}</button>`;
+  }).join('');
+  $('categoryPicker').innerHTML = chips + `<button type="button" class="brand-chip brand-chip-add" onclick="openAddCategory()">+ Add style</button>`;
+  const noteEl = $('categoryCustomNote');
+  if(!matched && cur){
+    noteEl.style.display = 'block';
+    noteEl.textContent = `Current: ${cur} (not in your ${type.toLowerCase()} styles)`;
+  } else {
+    noteEl.style.display = 'none';
+  }
+}
+function selectCategory(name){
+  $('f_category').value = ($('f_category').value === name) ? '' : name;
+  renderCategoryPicker();
+  // Suggest whatever we've learned goes with this style — temp, brand,
+  // material — still just a starting point, click any chip afterward to
+  // override it. Nothing suggested for a brand-new style; that's expected.
+  const cat = $('f_category').value;
+  const classId = CATEGORY_TEMP_DEFAULTS[cat];
+  if(classId != null) selectTempClass(classId);
+  const brand = CATEGORY_BRAND_DEFAULTS[cat];
+  if(brand) applyBrand(brand);
+  const material = CATEGORY_MATERIAL_DEFAULTS[cat];
+  if(material) applyMaterial(material);
+}
+function renderCategoryTypePicker(){
+  const cur = $('category_piece_type').value || 'Top';
+  $('categoryTypePicker').innerHTML = ['Top','Bottom'].map(v=>
+    `<button type="button" class="brand-chip${v===cur?' sel':''}" onclick="selectCategoryType('${v}')">${v}</button>`
+  ).join('');
+}
+function selectCategoryType(val){
+  $('category_piece_type').value = val;
+  renderCategoryTypePicker();
+}
+function openAddCategory(){
+  $('category_name').value = '';
+  $('category_piece_type').value = $('f_piece_type').value || 'Top';   // match whatever's active on the form
+  renderCategoryTypePicker();
+  $('categoryModal').classList.add('open');
+}
+async function saveCategory(){
+  const name = $('category_name').value.trim();
+  if(!name) return;
+  await api('/api/categories','POST',{name, piece_type:$('category_piece_type').value});
+  closeModal('categoryModal');
+  CATEGORIES = await api('/api/categories');
+  $('f_piece_type').value = $('category_piece_type').value;
+  renderTypePicker();
+  $('f_category').value = name;
+  renderCategoryPicker();
 }
 function openItemModal(id){
   const editing = ITEMS.find(x=>x.id===id);
@@ -1127,12 +1284,15 @@ function openItemModal(id){
   $('f_id').value = editing ? id : '';
   $('f_name').value = editing?editing.name:'';
   $('f_piece_type').value = editing?typeOf(editing):(wardrobeType||'Top');
+  renderTypePicker();
   $('f_category').value = editing?editing.category:'';
+  renderCategoryPicker();
   $('f_color').value = editing?editing.color:'';
   $('f_color_hex').value = editing&&editing.color_hex?editing.color_hex:'#8a8d91';
   $('f_brand').value = editing?editing.brand:'';
   renderBrandPicker();
   $('f_material').value = editing?editing.material:'';
+  renderMaterialPicker();
   $('f_temp_min').value = editing&&editing.temp_min!=null?editing.temp_min:'';
   $('f_temp_max').value = editing&&editing.temp_max!=null?editing.temp_max:'';
   renderTempClassPicker();
@@ -1301,7 +1461,7 @@ function renderCollections(){
             <button class="coll-toggle" onclick="toggleColl(${c.id})" title="${collapsed?'Expand':'Collapse'}">${collapsed?'▸':'▾'}</button>
             ${esc(c.name)} <span class="count-pill">${c.outfits.length} outfits</span>
           </h3>
-          ${t?`<span class="temp" style="margin-top:10px">🌡 ${t}</span>`:''}
+          ${t?`<span class="temp" style="margin-top:10px">${tempIconFor(c.temp_min,c.temp_max)} ${t}</span>`:''}
           ${progressHTML}
           ${c.notes?`<div class="meta" style="margin-top:8px">${esc(c.notes)}</div>`:''}
         </div>

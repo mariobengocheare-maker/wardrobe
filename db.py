@@ -5,6 +5,7 @@ wardrobe + the "Office" collection on first run.
 """
 
 import os
+import re
 import shutil
 import sqlite3
 from itertools import product
@@ -102,6 +103,33 @@ CREATE TABLE IF NOT EXISTS brands (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     name        TEXT NOT NULL UNIQUE
 );
+
+CREATE TABLE IF NOT EXISTS materials (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT NOT NULL UNIQUE
+);
+
+CREATE TABLE IF NOT EXISTS categories (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT NOT NULL UNIQUE,
+    piece_type  TEXT NOT NULL DEFAULT 'Top'
+);
+
+CREATE TABLE IF NOT EXISTS category_temp_defaults (
+    category      TEXT PRIMARY KEY,
+    temp_class_id INTEGER,
+    FOREIGN KEY (temp_class_id) REFERENCES temp_classes(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS category_brand_defaults (
+    category    TEXT PRIMARY KEY,
+    brand       TEXT
+);
+
+CREATE TABLE IF NOT EXISTS category_material_defaults (
+    category    TEXT PRIMARY KEY,
+    material    TEXT
+);
 """
 
 
@@ -119,6 +147,12 @@ def init_db():
         _seed_brands(conn)
     if conn.execute("SELECT COUNT(*) AS c FROM price_notes").fetchone()["c"] == 0:
         _seed_price_notes(conn)
+    if conn.execute("SELECT COUNT(*) AS c FROM categories").fetchone()["c"] == 0:
+        _seed_categories(conn)
+    if conn.execute("SELECT COUNT(*) AS c FROM category_temp_defaults").fetchone()["c"] == 0:
+        _seed_category_temp_defaults(conn)
+    if conn.execute("SELECT COUNT(*) AS c FROM materials").fetchone()["c"] == 0:
+        _seed_materials(conn)
     conn.close()
 
 
@@ -131,6 +165,15 @@ def _migrate(conn):
         conn.execute("ALTER TABLE items ADD COLUMN image_url TEXT NOT NULL DEFAULT ''")
     if "pending_purchase" not in cols:
         conn.execute("ALTER TABLE items ADD COLUMN pending_purchase INTEGER NOT NULL DEFAULT 0")
+    cat_cols = {r["name"] for r in conn.execute("PRAGMA table_info(categories)")}
+    if "piece_type" not in cat_cols:
+        conn.execute("ALTER TABLE categories ADD COLUMN piece_type TEXT NOT NULL DEFAULT 'Top'")
+        # Best-effort classify any pre-existing rows using the same keyword
+        # heuristic the rest of the app already uses to guess Top vs Bottom.
+        bottom_re = re.compile(r"(pant|slack|trouser|jean|chino|short|skirt|legging)", re.I)
+        for row in conn.execute("SELECT id, name FROM categories").fetchall():
+            if bottom_re.search(row["name"] or ""):
+                conn.execute("UPDATE categories SET piece_type = 'Bottom' WHERE id = ?", (row["id"],))
     conn.commit()
 
 
@@ -221,6 +264,7 @@ def _seed_temp_classes(conn):
 
 
 DEFAULT_BRANDS = ["Ralph Lauren", "J.Crew"]
+DEFAULT_MATERIALS = ["Cotton", "Pima Cotton", "Wool", "Polyester", "Linen"]
 
 # brand, category, note
 DEFAULT_PRICE_NOTES = [
@@ -233,11 +277,52 @@ def _seed_brands(conn):
     conn.commit()
 
 
+def _seed_materials(conn):
+    conn.executemany("INSERT OR IGNORE INTO materials (name) VALUES (?)", [(m,) for m in DEFAULT_MATERIALS])
+    conn.commit()
+
+
 def _seed_price_notes(conn):
     conn.executemany(
         "INSERT OR IGNORE INTO price_notes (brand, category, note) VALUES (?, ?, ?)",
         DEFAULT_PRICE_NOTES,
     )
+    conn.commit()
+
+
+# name, piece_type
+DEFAULT_CATEGORIES = [
+    ("Long Sleeve Polo", "Top"),
+    ("Polo", "Top"),
+    ("Quarter Zip", "Top"),
+    ("Slacks", "Bottom"),
+    ("Shorts", "Bottom"),
+]
+
+# category -> temp class name, only where we have a confident starting guess.
+# Anything else is learned automatically: whenever an item is saved with a
+# category and a temp range that matches one of the classes, that pairing is
+# remembered here so the next piece of that same style suggests it too.
+DEFAULT_CATEGORY_TEMP_DEFAULTS = {
+    "Quarter Zip": "Cool",
+}
+
+
+def _seed_categories(conn):
+    conn.executemany(
+        "INSERT OR IGNORE INTO categories (name, piece_type) VALUES (?, ?)", DEFAULT_CATEGORIES
+    )
+    conn.commit()
+
+
+def _seed_category_temp_defaults(conn):
+    for category, class_name in DEFAULT_CATEGORY_TEMP_DEFAULTS.items():
+        row = conn.execute("SELECT id FROM temp_classes WHERE name = ?", (class_name,)).fetchone()
+        if row:
+            conn.execute(
+                "INSERT OR IGNORE INTO category_temp_defaults (category, temp_class_id) VALUES (?, ?)",
+                (category, row["id"]),
+            )
     conn.commit()
 
 
@@ -250,8 +335,55 @@ def list_items():
     return [dict(r) for r in rows]
 
 
+def _learn_category_temp(conn, category, temp_min, temp_max):
+    """Remember which temp class goes with a category, so picking that
+    category next time can suggest the same temp automatically."""
+    if not category or temp_min is None or temp_max is None:
+        return
+    row = conn.execute(
+        "SELECT id FROM temp_classes WHERE temp_min = ? AND temp_max = ?",
+        (temp_min, temp_max),
+    ).fetchone()
+    if row:
+        conn.execute(
+            """INSERT INTO category_temp_defaults (category, temp_class_id) VALUES (?, ?)
+               ON CONFLICT(category) DO UPDATE SET temp_class_id = excluded.temp_class_id""",
+            (category, row["id"]),
+        )
+
+
+def _learn_category_brand(conn, category, brand):
+    if not category or not brand:
+        return
+    conn.execute(
+        """INSERT INTO category_brand_defaults (category, brand) VALUES (?, ?)
+           ON CONFLICT(category) DO UPDATE SET brand = excluded.brand""",
+        (category, brand),
+    )
+
+
+def _learn_category_material(conn, category, material):
+    if not category or not material:
+        return
+    conn.execute(
+        """INSERT INTO category_material_defaults (category, material) VALUES (?, ?)
+           ON CONFLICT(category) DO UPDATE SET material = excluded.material""",
+        (category, material),
+    )
+
+
+def _learn_from_item(conn, category, brand, material, temp_min, temp_max):
+    _learn_category_temp(conn, category, temp_min, temp_max)
+    _learn_category_brand(conn, category, brand)
+    _learn_category_material(conn, category, material)
+
+
 def add_item(data):
     conn = get_conn()
+    category = data.get("category", "").strip()
+    brand = data.get("brand", "").strip()
+    material = data.get("material", "").strip()
+    temp_min, temp_max = _int_or_none(data.get("temp_min")), _int_or_none(data.get("temp_max"))
     cur = conn.execute(
         """INSERT INTO items
            (name, category, piece_type, color, color_hex, brand, material,
@@ -259,19 +391,20 @@ def add_item(data):
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             data.get("name", "").strip(),
-            data.get("category", "").strip(),
+            category,
             data.get("piece_type", "").strip(),
             data.get("color", "").strip(),
             data.get("color_hex", "").strip(),
-            data.get("brand", "").strip(),
-            data.get("material", "").strip(),
+            brand,
+            material,
             (data.get("image_url") or "").strip(),
-            _int_or_none(data.get("temp_min")),
-            _int_or_none(data.get("temp_max")),
+            temp_min,
+            temp_max,
             data.get("notes", "").strip(),
             1 if data.get("pending_purchase") else 0,
         ),
     )
+    _learn_from_item(conn, category, brand, material, temp_min, temp_max)
     conn.commit()
     new_id = cur.lastrowid
     conn.close()
@@ -280,6 +413,10 @@ def add_item(data):
 
 def update_item(item_id, data):
     conn = get_conn()
+    category = data.get("category", "").strip()
+    brand = data.get("brand", "").strip()
+    material = data.get("material", "").strip()
+    temp_min, temp_max = _int_or_none(data.get("temp_min")), _int_or_none(data.get("temp_max"))
     conn.execute(
         """UPDATE items SET
              name = ?, category = ?, piece_type = ?, color = ?, color_hex = ?,
@@ -288,20 +425,21 @@ def update_item(item_id, data):
            WHERE id = ?""",
         (
             data.get("name", "").strip(),
-            data.get("category", "").strip(),
+            category,
             data.get("piece_type", "").strip(),
             data.get("color", "").strip(),
             data.get("color_hex", "").strip(),
-            data.get("brand", "").strip(),
-            data.get("material", "").strip(),
+            brand,
+            material,
             (data.get("image_url") or "").strip(),
-            _int_or_none(data.get("temp_min")),
-            _int_or_none(data.get("temp_max")),
+            temp_min,
+            temp_max,
             data.get("notes", "").strip(),
             1 if data.get("pending_purchase") else 0,
             item_id,
         ),
     )
+    _learn_from_item(conn, category, brand, material, temp_min, temp_max)
     conn.commit()
     conn.close()
 
@@ -475,6 +613,66 @@ def add_brand(name):
     name = (name or "").strip()
     if name:
         conn.execute("INSERT OR IGNORE INTO brands (name) VALUES (?)", (name,))
+        conn.commit()
+    conn.close()
+
+
+# --- Categories (styles) ----------------------------------------------
+
+def list_categories():
+    conn = get_conn()
+    rows = conn.execute("SELECT * FROM categories ORDER BY name").fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def add_category(name, piece_type):
+    conn = get_conn()
+    name = (name or "").strip()
+    if name:
+        conn.execute(
+            "INSERT OR IGNORE INTO categories (name, piece_type) VALUES (?, ?)",
+            (name, piece_type if piece_type in ("Top", "Bottom") else "Top"),
+        )
+        conn.commit()
+    conn.close()
+
+
+def list_category_temp_defaults():
+    conn = get_conn()
+    rows = conn.execute("SELECT * FROM category_temp_defaults").fetchall()
+    conn.close()
+    return {r["category"]: r["temp_class_id"] for r in rows}
+
+
+def list_category_brand_defaults():
+    conn = get_conn()
+    rows = conn.execute("SELECT * FROM category_brand_defaults").fetchall()
+    conn.close()
+    return {r["category"]: r["brand"] for r in rows}
+
+
+def list_category_material_defaults():
+    conn = get_conn()
+    rows = conn.execute("SELECT * FROM category_material_defaults").fetchall()
+    conn.close()
+    return {r["category"]: r["material"] for r in rows}
+
+
+# --- Materials ----------------------------------------------------------
+
+def list_materials():
+    conn = get_conn()
+    rows = conn.execute("SELECT * FROM materials ORDER BY name").fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def add_material(name):
+    conn = get_conn()
+    name = (name or "").strip()
+    if name:
+        conn.execute("INSERT OR IGNORE INTO materials (name) VALUES (?)", (name,))
         conn.commit()
     conn.close()
 
