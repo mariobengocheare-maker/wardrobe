@@ -295,6 +295,7 @@
   .outfit-del{position:absolute; top:10px; right:10px; z-index:3; width:24px; height:24px; border-radius:50%; background:rgba(255,253,249,.92); border:1px solid var(--line); color:var(--muted); font-size:12px; display:flex; align-items:center; justify-content:center; cursor:pointer;}
   .outfit-del:hover{color:var(--gold); border-color:var(--gold);}
   .owned-check{position:absolute; top:10px; left:10px; z-index:3; width:24px; height:24px; border-radius:50%; background:#2f8f5b; color:#fff; display:flex; align-items:center; justify-content:center; font-size:12px; box-shadow:var(--shadow-sm);}
+  .unowned-x{position:absolute; top:10px; left:10px; z-index:3; width:24px; height:24px; border-radius:50%; background:#c0392b; color:#fff; display:flex; align-items:center; justify-content:center; font-size:12px; box-shadow:var(--shadow-sm);}
   .ov-pending-tag{position:absolute; top:6px; left:6px; z-index:5; background:linear-gradient(180deg,#c2a25a,#9c7d34); color:#fff; font-size:10px; letter-spacing:.12em; text-transform:uppercase; padding:4px 10px; border-radius:999px; box-shadow:0 2px 6px rgba(0,0,0,.2);}
   .coll-progress{font-size:12px; color:var(--muted); margin-top:8px; letter-spacing:.04em;}
   .coll-complete{display:inline-flex; align-items:center; gap:6px; margin-top:8px; font-size:12px; letter-spacing:.14em; text-transform:uppercase; color:#9c7d34; font-weight:700;}
@@ -1345,22 +1346,22 @@ function fitColHTML(type, items, collapsed, prioritizePolo){
         : '<div class="meta" style="font-size:12px">None picked</div>'
       }</div>`;
   }
-  // Group by category — one horizontal row of cards per category (e.g. all
-  // Long Sleeve Polos side by side), stacked so scrolling moves cleanly
-  // from one category to the next, same pattern as the My Wardrobe grid.
+  // Group by category into side-by-side columns — same browsing pattern as
+  // My Wardrobe, so every sub-type (Long Sleeve Polo, Quarter Zip, ...) gets
+  // its own column instead of being stacked one on top of the other.
   const byCat = {};
   items.forEach(i=>{ (byCat[catOf(i)] = byCat[catOf(i)]||[]).push(i); });
   let cats = Object.keys(byCat).sort();
   if(prioritizePolo) cats = [...cats].sort((a, b) => (POLO_RE.test(b)?1:0) - (POLO_RE.test(a)?1:0));
-  const sections = cats.map(c => `
-    <div class="subsection">
+  const cols = cats.map(c => `
+    <div class="wardrobe-col">
       <div class="subsection-head"><h3>${esc(c)}</h3><span class="n">${byCat[c].length} ${byCat[c].length===1?'piece':'pieces'}</span></div>
-      <div class="fit-col-grid">${byCat[c].map(i=>{
+      <div class="wardrobe-col-list">${byCat[c].map(i=>{
         const sel = selectedFit.has(i.id) ? ' sel' : '';
         return `<div class="card pick-card${sel}" onclick="toggleFit(${i.id})">${itemCardHTML(i,{pick:true})}</div>`;
       }).join('')}</div>
     </div>`).join('');
-  return `<div class="fit-col-head"><h4>${label}</h4></div>${sections}`;
+  return `<div class="fit-col-head"><h4>${label}</h4></div><div class="wardrobe-columns">${cols}</div>`;
 }
 const POLO_RE = /polo/i;
 function renderFit(){
@@ -1450,7 +1451,7 @@ function renderCollections(){
     const outfits = c.outfits.map(o=>`
       <div class="outfit" onclick="viewOutfit(${o.id}, ${c.id})">
         <button class="outfit-del" onclick="event.stopPropagation();delOutfit(${o.id})">✕</button>
-        ${outfitOwned(o)?'<span class="owned-check" title="You own this fit">✓</span>':''}
+        ${outfitOwned(o)?'<span class="owned-check" title="You own this fit">✓</span>':'<span class="unowned-x" title="You don\'t own this fit yet">✕</span>'}
         ${outfitThumbHTML(o)}
         <div class="oname">${esc(o.name||'Outfit')}</div>
       </div>`).join('');
