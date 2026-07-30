@@ -15,14 +15,28 @@ open Wardrobe while URTO was already running just showed URTO instead.
 Moved Wardrobe to 5050 to fix this. **Do not move it back to 5000** or
 reuse any other port URTO (or any future local app like this) might use.
 
+## Current status
+
+Working tree clean; every commit pushed to `origin/claude/wardrobe-v1-code-66xtsm`.
+No known open bug. Version shown in the app's own footer — see build order
+below for the version-history convention (mirrors URTO's).
+
+Build order, roughly (see `git log` for exact commits):
+1. Initial Wardrobe app: items/collections/outfits, Fit Maker temperature-overlap logic.
+2. Moved off port 5000 (collided with URTO) to 5050 — see port note above.
+3. Replaced `Start Wardrobe.bat` with `launch_desktop.pyw` (no console window at all, mirrors URTO's launcher) + `Create Wardrobe Desktop Icon.vbs`.
+4. Added a visible app version + last-updated timestamp, same convention as URTO: `APP_VERSION`/`APP_VERSION_DATE` constants at the top of `app.py`, rendered in a footer at the bottom of the page. **Bump both by hand on every future shipped change**, timestamp in **Eastern time** — current: v1.2.2, updated Jul 30, 2026 5:14 PM EST.
+5. Added a one-click **"Wardrobe Updater"** desktop icon (`wardrobe_updater.pyw` + `Create Wardrobe Updater Desktop Icon.vbs`), mirroring URTO's own updater built the same day: double-click it and it downloads the latest branch ZIP, stops any running `app.py` itself (matched on the full path to *this* folder's `app.py`, not just the bare filename — the user's other app, URTO, also has a file called `app.py`, and a name-only match risked killing the wrong one if both were running at once), installs the new files, and cleans up the temp zip/extraction automatically. `wardrobe.db` was never at risk either way — it lives outside the project folder entirely (`%APPDATA%\WardrobeApp\wardrobe.db`), so an update can't reach it regardless. Verified the core download → install logic end-to-end against the real GitHub zip. **Bootstrap note**: since the updater doesn't exist on the user's PC until installed once, that first install still needs the old manual ZIP method — every update after that goes through the icon.
+
+**Known repo quirk (not yet fixed, flagged for a future session):** `node_modules/` (Playwright test tooling, 100+ MB) is currently tracked in git despite being listed in `.gitignore` — almost certainly committed before the ignore rule was added, and `.gitignore` doesn't retroactively untrack already-tracked files. Not a functional problem today (`wardrobe_updater.pyw`'s `NEVER_TOUCH` list explicitly skips `node_modules` on install, so it's harmless), but worth a proper `git rm -r --cached node_modules` cleanup commit at some point to stop shipping it in every ZIP download. Don't remove the `NEVER_TOUCH` entry for `node_modules` without doing that cleanup first, or updates will start overwriting/downloading it again.
+
 ## User context (read this first)
 
 - **The user is not a developer.** Give explicit, numbered, Windows-specific
   steps for anything involving files, the command line, or GitHub. Don't
   assume familiarity with terminals or git.
-- **Preferred update flow: ZIP download, not `git pull`.** Download the repo
-  ZIP from GitHub → extract → replace files in the project folder → rerun
-  `python app.py`. Offer the GitHub link after every push.
+- **Standing rule: no feature should ever require the user to open a console/terminal and paste commands.** One-off tasks get a UI flow (or, like updates, a double-click icon) instead — same rule established on URTO, applies equally here.
+- **Update flow: the "Wardrobe Updater" desktop icon, not a manual ZIP** (see build order #5 above). Still give the ZIP download link after every push as a manual fallback, purely in case the updater itself ever needs fixing.
 - **The user iterates by screenshot** — treat screenshots of the running app
   as ground truth over assumptions.
 - **Always test before claiming done.** Render the app headless and screenshot
@@ -47,6 +61,8 @@ reuse any other port URTO (or any future local app like this) might use.
 - `launch_desktop.pyw` — Windows double-click entry point. Checks if the server's already up on `127.0.0.1:5050`; if not, spawns `app.py` detached/hidden via `sys.executable` (which is `pythonw.exe` when this `.pyw` itself was launched that way — no console window at any point), waits for it to come up, then opens the browser. Re-launching while already running just opens another browser tab instead of a second server. **Replaced `Start Wardrobe.bat`** (removed) — a `.bat` always runs in a visible terminal window and its `start /min python app.py` still left a real (just-minimized) console around for the server; `.pyw` via `pythonw.exe` has no console at all, for the launcher or the server it spawns. Mirrors URTO's launcher — keep them in sync if the approach changes.
 - `Create Wardrobe Desktop Icon.vbs` — one-time setup the user double-clicks to add a "Wardrobe" Desktop shortcut pointing at `launch_desktop.pyw`, with `wardrobe.ico` as its icon. Resolves its own folder via `WScript.ScriptFullName` so it works regardless of where the project folder lives. Re-run it to repoint an old shortcut that still targets the removed `.bat`.
 - `wardrobe.ico` — the desktop shortcut's icon. Committed, ships with every update.
+- `wardrobe_updater.pyw` — one-click self-updater (see build order #5). Downloads the latest branch ZIP from GitHub, stops any running `app.py` (PowerShell one-liner matched on the full path to *this* folder's `app.py`, never by bare name — the user's other app, URTO, has its own unrelated `app.py`), backs up the current code into `_update_backups/` (capped at 5, oldest pruned), installs the new files, then deletes the temp zip/extraction itself — nothing left to clean up by hand. A small Tkinter status window shows progress and offers a "Launch Wardrobe Now" button when done. Mirrors `urto_updater.pyw` — keep them in sync if the approach changes.
+- `Create Wardrobe Updater Desktop Icon.vbs` — one-time setup double-clicked to create the "Wardrobe Updater" Desktop shortcut, mirroring `Create Wardrobe Desktop Icon.vbs`.
 
 ## Features (all working, verified)
 

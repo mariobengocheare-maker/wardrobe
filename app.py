@@ -46,9 +46,16 @@ def _watchdog():
             os._exit(0)
 
 
+# Bump these two together whenever a change is shipped, so it's obvious at
+# a glance which build is running. Always give the timestamp in Eastern
+# time (matches the same convention URTO's own version footer uses).
+APP_VERSION = "1.2.3"
+APP_VERSION_DATE = "Jul 30, 2026 5:30 PM EST"
+
+
 @app.route("/")
 def index():
-    return render_template("index.html")
+    return render_template("index.html", app_version=APP_VERSION, app_version_date=APP_VERSION_DATE)
 
 
 # --- Image standardisation ----------------------------------------------
