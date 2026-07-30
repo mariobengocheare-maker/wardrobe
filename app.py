@@ -49,8 +49,8 @@ def _watchdog():
 # Bump these two together whenever a change is shipped, so it's obvious at
 # a glance which build is running. Always give the timestamp in Eastern
 # time (matches the same convention URTO's own version footer uses).
-APP_VERSION = "1.2.3"
-APP_VERSION_DATE = "Jul 30, 2026 5:30 PM EST"
+APP_VERSION = "1.3.0"
+APP_VERSION_DATE = "Jul 30, 2026 6:45 PM EDT"
 
 
 @app.route("/")

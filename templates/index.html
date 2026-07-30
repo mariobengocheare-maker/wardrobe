@@ -119,10 +119,34 @@
   .subsection-head h3{margin:0; font-size:23px;}
   .subsection-head .n{color:var(--muted); font-size:13px;}
 
-  /* one column per category, side by side, so every type is browsable at once */
-  .wardrobe-columns{display:flex; gap:24px; align-items:flex-start; overflow-x:auto; padding-bottom:16px;}
-  .wardrobe-col{flex:0 0 280px; width:280px;}
-  .wardrobe-col-list{display:flex; flex-direction:column; gap:18px;}
+  /* one slow-drifting horizontal filmstrip row per category — bare photos,
+     no card chrome; name only shows on hover, red X only if not owned yet */
+  .film-section{margin-bottom:40px;}
+  .film-row{
+    display:flex; gap:16px; overflow-x:auto; overflow-y:hidden;
+    padding:8px 4px 16px; cursor:grab; -webkit-overflow-scrolling:touch;
+    scrollbar-width:thin; scrollbar-color:var(--line) transparent;
+  }
+  .film-row.dragging{cursor:grabbing;}
+  .film-row::-webkit-scrollbar{height:6px;}
+  .film-row::-webkit-scrollbar-thumb{background:var(--line); border-radius:999px;}
+  .film-item{position:relative; flex:0 0 auto; width:150px; height:190px; cursor:pointer; user-select:none;}
+  .film-item img{width:100%; height:100%; object-fit:contain; pointer-events:none;
+    filter:drop-shadow(0 8px 16px rgba(40,32,20,.20));}
+  .film-item .swz{width:100%; height:100%; border-radius:16px; pointer-events:none;}
+  .film-item .film-x{
+    position:absolute; top:6px; left:6px; z-index:3; width:22px; height:22px; border-radius:50%;
+    background:#c0392b; color:#fff; display:flex; align-items:center; justify-content:center;
+    font-size:11px; box-shadow:var(--shadow-sm); pointer-events:none;
+  }
+  .film-item .film-label{
+    position:absolute; left:6px; right:6px; bottom:6px; text-align:center;
+    background:rgba(20,17,12,.88); color:#f2ece1; font-size:11px; padding:5px 8px; border-radius:999px;
+    opacity:0; pointer-events:none; transition:opacity .15s; white-space:nowrap; overflow:hidden;
+    text-overflow:ellipsis; letter-spacing:.02em;
+  }
+  .film-item:hover .film-label{opacity:1;}
+  .film-item.sel img, .film-item.sel .swz{outline:3px solid var(--gold); outline-offset:4px; border-radius:16px;}
 
   /* ---------- item grid ---------- */
   .grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:22px;}
@@ -737,6 +761,82 @@ function renderPending(){
     ? `<div class="grid">${locked.map(i=>`<div class="card">${itemCardHTML(i)}</div>`).join('')}</div>`
     : `<div class="empty">Nothing locked right now. Check "Pending purchase" on a piece to plan around it before you buy it.</div>`;
 }
+// --- filmstrip rows: bare photos, name on hover only, red X if not owned ---
+function filmItemHTML(i, pick){
+  const inner = i.image_url
+    ? `<img src="${esc(i.image_url)}" alt="${esc(i.name)}" draggable="false">`
+    : `<div class="swz" style="background:${i.color_hex||'#ccc'}"></div>`;
+  const sel = pick && selectedFit.has(i.id) ? ' sel' : '';
+  return `<div class="film-item${sel}" onclick="filmClick(${i.id},'${pick?'pick':'view'}')">
+    ${i.pending_purchase?'<span class="film-x" title="You don\'t own this yet">✕</span>':''}
+    ${inner}
+    <span class="film-label">${esc(i.name)}</span>
+  </div>`;
+}
+function filmSectionsHTML(cats, byCat, pick){
+  return cats.map((c, idx) => `
+    <div class="film-section">
+      <div class="subsection-head"><h3>${esc(c)}</h3><span class="n">${byCat[c].length} ${byCat[c].length===1?'piece':'pieces'}</span></div>
+      <div class="film-row" data-dir="${idx%2===0?'1':'-1'}">${byCat[c].map(i=>filmItemHTML(i,pick)).join('')}</div>
+    </div>`).join('');
+}
+let filmDragMoved = false;
+function filmClick(id, mode){
+  if(filmDragMoved) return;
+  if(mode==='pick'){ toggleFit(id); return; }
+  const i = ITEMS.find(x=>x.id===id);
+  if(i && i.image_url) openLightbox(id); else openItemModal(id);
+}
+(function initFilmDrag(){
+  // No setPointerCapture here on purpose: capturing the pointer on the row
+  // retargets the subsequent 'click' event to the row too (not just pointer
+  // events), which silently ate every plain click on a .film-item. The
+  // document-level listeners below already track the pointer everywhere,
+  // so capture isn't needed for that.
+  let active = null, startX = 0, startScroll = 0;
+  document.addEventListener('pointerdown', e=>{
+    const row = e.target.closest('.film-row');
+    if(!row) return;
+    active = row; startX = e.clientX; startScroll = row.scrollLeft; filmDragMoved = false;
+    row.classList.add('dragging');
+  });
+  document.addEventListener('pointermove', e=>{
+    if(!active) return;
+    const dx = e.clientX - startX;
+    if(Math.abs(dx) > 4) filmDragMoved = true;
+    active.scrollLeft = startScroll - dx;
+    active.dataset.pos = String(active.scrollLeft);
+  });
+  function release(){
+    if(!active) return;
+    active.classList.remove('dragging');
+    active = null;
+  }
+  document.addEventListener('pointerup', release);
+  document.addEventListener('pointercancel', release);
+  const FILM_SPEED = 0.12; // px/frame — "ever so slowly"
+  function tick(){
+    document.querySelectorAll('.film-row').forEach(row=>{
+      if(row === active) return;
+      const max = row.scrollWidth - row.clientWidth;
+      if(max <= 0) return;
+      let dir = row.dataset.dir === '-1' ? -1 : 1;
+      // Track position as a float separately from scrollLeft — scrollLeft
+      // rounds to whole pixels on read, which would throw away the < 1px
+      // increment every single frame and never actually move.
+      let pos = parseFloat(row.dataset.pos);
+      if(Number.isNaN(pos)) pos = row.scrollLeft;
+      let next = pos + dir * FILM_SPEED;
+      if(next <= 0){ next = 0; dir = 1; }
+      else if(next >= max){ next = max; dir = -1; }
+      row.dataset.dir = String(dir);
+      row.dataset.pos = String(next);
+      row.scrollLeft = next;
+    });
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+})();
 // --- shared photo tile ---
 function pendingRibbon(i){
   return i.pending_purchase ? '<span class="pending-lock">🔒</span><div class="pending-vignette"></div>' : '';
@@ -805,11 +905,7 @@ function renderWardrobe(){
     return;
   }
   const shownCats = subFilter ? [subFilter] : cats;
-  $('wardrobeBody').innerHTML = `<div class="wardrobe-columns">${shownCats.map(c=>`
-    <div class="wardrobe-col">
-      <div class="subsection-head"><h3>${esc(c)}</h3><span class="n">${byCat[c].length} ${byCat[c].length===1?'piece':'pieces'}</span></div>
-      <div class="wardrobe-col-list">${byCat[c].map(i=>`<div class="card">${itemCardHTML(i)}</div>`).join('')}</div>
-    </div>`).join('')}</div>`;
+  $('wardrobeBody').innerHTML = filmSectionsHTML(shownCats, byCat, false);
 }
 function setSub(c){ subFilter = c; renderWardrobe(); }
 
@@ -1349,22 +1445,13 @@ function fitColHTML(type, items, collapsed, prioritizePolo){
         : '<div class="meta" style="font-size:12px">None picked</div>'
       }</div>`;
   }
-  // Group by category into side-by-side columns — same browsing pattern as
-  // My Wardrobe, so every sub-type (Long Sleeve Polo, Quarter Zip, ...) gets
-  // its own column instead of being stacked one on top of the other.
+  // Group by category into stacked filmstrip rows — same bare-photo,
+  // slow-drifting browsing pattern as My Wardrobe, one row per sub-type.
   const byCat = {};
   items.forEach(i=>{ (byCat[catOf(i)] = byCat[catOf(i)]||[]).push(i); });
   let cats = Object.keys(byCat).sort();
   if(prioritizePolo) cats = [...cats].sort((a, b) => (POLO_RE.test(b)?1:0) - (POLO_RE.test(a)?1:0));
-  const cols = cats.map(c => `
-    <div class="wardrobe-col">
-      <div class="subsection-head"><h3>${esc(c)}</h3><span class="n">${byCat[c].length} ${byCat[c].length===1?'piece':'pieces'}</span></div>
-      <div class="wardrobe-col-list">${byCat[c].map(i=>{
-        const sel = selectedFit.has(i.id) ? ' sel' : '';
-        return `<div class="card pick-card${sel}" onclick="toggleFit(${i.id})">${itemCardHTML(i,{pick:true})}</div>`;
-      }).join('')}</div>
-    </div>`).join('');
-  return `<div class="fit-col-head"><h4>${label}</h4></div><div class="wardrobe-columns">${cols}</div>`;
+  return `<div class="fit-col-head"><h4>${label}</h4></div>${filmSectionsHTML(cats, byCat, true)}`;
 }
 const POLO_RE = /polo/i;
 function renderFit(){
