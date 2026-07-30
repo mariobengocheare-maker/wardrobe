@@ -27,6 +27,8 @@ Build order, roughly (see `git log` for exact commits):
 3. Replaced `Start Wardrobe.bat` with `launch_desktop.pyw` (no console window at all, mirrors URTO's launcher) + `Create Wardrobe Desktop Icon.vbs`.
 4. Added a visible app version + last-updated timestamp, same convention as URTO: `APP_VERSION`/`APP_VERSION_DATE` constants at the top of `app.py`, rendered in a footer at the bottom of the page. **Bump both by hand on every future shipped change**, timestamp in **Eastern time** — current: v1.2.3, updated Jul 30, 2026 5:30 PM EST.
 5. Added a one-click **"Wardrobe Updater"** desktop icon (`wardrobe_updater.pyw` + `Create Wardrobe Updater Desktop Icon.vbs`), mirroring URTO's own updater built the same day: double-click it and it downloads the latest branch ZIP, stops any running `app.py` itself (matched on the full path to *this* folder's `app.py`, not just the bare filename — the user's other app, URTO, also has a file called `app.py`, and a name-only match risked killing the wrong one if both were running at once), installs the new files, and cleans up the temp zip/extraction automatically. `wardrobe.db` was never at risk either way — it lives outside the project folder entirely (`%APPDATA%\WardrobeApp\wardrobe.db`), so an update can't reach it regardless. Verified the core download → install logic end-to-end against the real GitHub zip. **Bootstrap note**: since the updater doesn't exist on the user's PC until installed once, that first install still needs the old manual ZIP method — every update after that goes through the icon.
+6. Fit Maker's Top/Bottom pickers now split by sub-type into side-by-side columns (Long Sleeve Polo, Quarter Zip, etc.), matching My Wardrobe's browsing pattern instead of stacking sub-types in sections.
+7. Collections outfit thumbnails now show a red X badge when the outfit isn't fully owned yet (alongside the existing green check for fully-owned outfits).
 
 **Known repo quirk (not yet fixed, flagged for a future session):** `node_modules/` (Playwright test tooling, 100+ MB) is currently tracked in git despite being listed in `.gitignore` — almost certainly committed before the ignore rule was added, and `.gitignore` doesn't retroactively untrack already-tracked files. Not a functional problem today (`wardrobe_updater.pyw`'s `NEVER_TOUCH` list explicitly skips `node_modules` on install, so it's harmless), but worth a proper `git rm -r --cached node_modules` cleanup commit at some point to stop shipping it in every ZIP download. Don't remove the `NEVER_TOUCH` entry for `node_modules` without doing that cleanup first, or updates will start overwriting/downloading it again.
 
@@ -68,14 +70,17 @@ Build order, roughly (see `git log` for exact commits):
 
 1. **Wardrobe** — add / edit / remove pieces. Each piece: name, category,
    color (+ swatch hex), brand, material, ideal temperature range (°F), notes.
+   Browsed as side-by-side columns, one per sub-type/category.
 2. **Fit Maker** — tap pieces to build a look; shows the selected pieces
    together and computes the fit's shared temperature range as the *overlap*
    of the pieces' ranges (highest low → lowest high). Save a look as an outfit,
-   optionally straight into a collection.
+   optionally straight into a collection. Tops/Bottoms pickers are split into
+   the same side-by-side sub-type columns as My Wardrobe.
 3. **Collections** — named groups of outfits, each with its own temperature
    rating. Deleting a collection cascades to its outfits; deleting an item
    cascades out of any outfits it was in (SQLite `ON DELETE CASCADE`,
-   `PRAGMA foreign_keys = ON` in `db.py`).
+   `PRAGMA foreign_keys = ON` in `db.py`). Outfit thumbnails show a green
+   check when fully owned, or a red X when not.
 
 ## Data model
 
