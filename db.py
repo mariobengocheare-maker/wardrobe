@@ -64,6 +64,7 @@ CREATE TABLE IF NOT EXISTS collections (
     temp_min    INTEGER,
     temp_max    INTEGER,
     notes       TEXT NOT NULL DEFAULT '',
+    sort_order  INTEGER NOT NULL DEFAULT 0,
     created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -174,6 +175,14 @@ def _migrate(conn):
         for row in conn.execute("SELECT id, name FROM categories").fetchall():
             if bottom_re.search(row["name"] or ""):
                 conn.execute("UPDATE categories SET piece_type = 'Bottom' WHERE id = ?", (row["id"],))
+    coll_cols = {r["name"] for r in conn.execute("PRAGMA table_info(collections)")}
+    if "sort_order" not in coll_cols:
+        conn.execute("ALTER TABLE collections ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0")
+        for idx, row in enumerate(conn.execute("SELECT id FROM collections ORDER BY created_at").fetchall()):
+            conn.execute("UPDATE collections SET sort_order = ? WHERE id = ?", (idx, row["id"]))
+        # Pinned to the top by default, per an explicit one-off ask — still
+        # fully re-orderable afterward via drag-and-drop like anything else.
+        conn.execute("UPDATE collections SET sort_order = -1 WHERE lower(name) = 'outdoor daytime chic'")
     conn.commit()
 
 
@@ -456,7 +465,7 @@ def delete_item(item_id):
 def list_collections():
     conn = get_conn()
     colls = [dict(r) for r in conn.execute(
-        "SELECT * FROM collections ORDER BY created_at").fetchall()]
+        "SELECT * FROM collections ORDER BY sort_order, created_at").fetchall()]
     for c in colls:
         c["outfits"] = _outfits_for_collection(conn, c["id"])
     conn.close()
@@ -479,19 +488,31 @@ def _outfits_for_collection(conn, coll_id):
 
 def add_collection(data):
     conn = get_conn()
+    next_order = conn.execute(
+        "SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM collections").fetchone()["n"]
     cur = conn.execute(
-        "INSERT INTO collections (name, temp_min, temp_max, notes) VALUES (?, ?, ?, ?)",
+        "INSERT INTO collections (name, temp_min, temp_max, notes, sort_order) VALUES (?, ?, ?, ?, ?)",
         (
             data.get("name", "").strip(),
             _int_or_none(data.get("temp_min")),
             _int_or_none(data.get("temp_max")),
             data.get("notes", "").strip(),
+            next_order,
         ),
     )
     conn.commit()
     new_id = cur.lastrowid
     conn.close()
     return new_id
+
+
+def reorder_collections(order):
+    """order: list of collection ids in the desired display order."""
+    conn = get_conn()
+    for idx, coll_id in enumerate(order):
+        conn.execute("UPDATE collections SET sort_order = ? WHERE id = ?", (idx, coll_id))
+    conn.commit()
+    conn.close()
 
 
 def update_collection(coll_id, data):

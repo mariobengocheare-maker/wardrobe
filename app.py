@@ -49,13 +49,18 @@ def _watchdog():
 # Bump these two together whenever a change is shipped, so it's obvious at
 # a glance which build is running. Always give the timestamp in Eastern
 # time (matches the same convention URTO's own version footer uses).
-APP_VERSION = "1.3.0"
-APP_VERSION_DATE = "Jul 30, 2026 6:45 PM EDT"
+APP_VERSION = "1.4.0"
+APP_VERSION_DATE = "Jul 30, 2026 7:28 PM EDT"
 
 
 @app.route("/")
 def index():
     return render_template("index.html", app_version=APP_VERSION, app_version_date=APP_VERSION_DATE)
+
+
+@app.route("/api/version", methods=["GET"])
+def version():
+    return jsonify({"version": APP_VERSION})
 
 
 # --- Image standardisation ----------------------------------------------
@@ -212,6 +217,13 @@ def edit_collection(coll_id):
 @app.route("/api/collections/<int:coll_id>", methods=["DELETE"])
 def remove_collection(coll_id):
     db.delete_collection(coll_id)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/collections/reorder", methods=["POST"])
+def reorder_collections():
+    data = request.get_json(force=True)
+    db.reorder_collections(data.get("order", []))
     return jsonify({"ok": True})
 
 

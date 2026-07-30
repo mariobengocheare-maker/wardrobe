@@ -274,6 +274,9 @@
 
   /* ---------- fit maker ---------- */
   .fit-wrap{display:grid; grid-template-columns:1fr 360px; gap:28px;}
+  .fit-main{min-width:0;} /* grid items default to min-width:auto — without this,
+    a film-row's full (pre-scroll) content width can force the 1fr track wider
+    than intended once a row's content is duplicated for seamless looping. */
   @media(max-width:900px){.fit-wrap{grid-template-columns:1fr;}}
   .pick-card{cursor:pointer;}
   .pick-card.sel{outline:3px solid var(--gold); outline-offset:2px;}
@@ -312,12 +315,19 @@
   .coll-head h3{margin:0; font-size:27px;}
   .coll-toggle{background:none; border:none; cursor:pointer; color:var(--muted); font-size:15px; padding:0 8px 0 0; vertical-align:middle; line-height:1;}
   .coll-toggle:hover{color:var(--gold);}
-  .outfit-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:16px; margin-top:20px;}
-  .outfit{border:1px solid var(--line); border-radius:14px; padding:14px; background:#fff; transition:.18s; cursor:pointer; position:relative;}
-  .outfit:hover{box-shadow:var(--shadow); transform:translateY(-3px);}
-  .outfit .oname{font-weight:600; margin-top:10px; font-size:14px; text-align:center;}
-  .outfit-del{position:absolute; top:10px; right:10px; z-index:3; width:24px; height:24px; border-radius:50%; background:rgba(255,253,249,.92); border:1px solid var(--line); color:var(--muted); font-size:12px; display:flex; align-items:center; justify-content:center; cursor:pointer;}
-  .outfit-del:hover{color:var(--gold); border-color:var(--gold);}
+  .coll-grip{cursor:grab; color:var(--muted); font-size:16px; margin-right:8px; user-select:none; display:inline-block;}
+  .coll-grip:active{cursor:grabbing;}
+  .coll.drag-over{outline:2px dashed var(--gold); outline-offset:4px;}
+  .film-item.outfit-item{width:180px; height:220px;}
+  .film-item.outfit-item .outfit-thumb{width:100%; height:100%;}
+  .film-item .outfit-del{
+    position:absolute; top:6px; right:6px; z-index:4; width:24px; height:24px; border-radius:50%;
+    background:rgba(255,253,249,.92); border:1px solid var(--line); color:var(--muted); font-size:12px;
+    display:flex; align-items:center; justify-content:center; cursor:pointer;
+    opacity:0; transition:opacity .15s;
+  }
+  .film-item:hover .outfit-del{opacity:1;}
+  .film-item .outfit-del:hover{color:var(--gold); border-color:var(--gold);}
   .owned-check{position:absolute; top:10px; left:10px; z-index:3; width:24px; height:24px; border-radius:50%; background:#2f8f5b; color:#fff; display:flex; align-items:center; justify-content:center; font-size:12px; box-shadow:var(--shadow-sm);}
   .unowned-x{position:absolute; top:10px; left:10px; z-index:3; width:24px; height:24px; border-radius:50%; background:#c0392b; color:#fff; display:flex; align-items:center; justify-content:center; font-size:12px; box-shadow:var(--shadow-sm);}
   .ov-pending-tag{position:absolute; top:6px; left:6px; z-index:5; background:linear-gradient(180deg,#c2a25a,#9c7d34); color:#fff; font-size:10px; letter-spacing:.12em; text-transform:uppercase; padding:4px 10px; border-radius:999px; box-shadow:0 2px 6px rgba(0,0,0,.2);}
@@ -443,7 +453,7 @@
       <div><div class="kick">Build a look</div><h2>Fit Maker</h2></div>
     </div>
     <div class="fit-wrap">
-      <div>
+      <div class="fit-main">
         <p class="meta" style="margin-bottom:18px">Tap a top, then a bottom, to build a look. See how they come together and how warm the whole fit runs.</p>
         <div id="fitGrid"></div>
       </div>
@@ -712,6 +722,7 @@ document.querySelectorAll('nav.tabs button').forEach(b=>{
     b.classList.add('active');
     $('view-'+b.dataset.tab).classList.add('active');
     if(b.dataset.tab==='collections') tightenAll($('collList'));
+    primeFilmRows();
   };
 });
 // --- Tops / Bottoms segmented ---
@@ -787,6 +798,28 @@ function filmClick(id, mode){
   const i = ITEMS.find(x=>x.id===id);
   if(i && i.image_url) openLightbox(id); else openItemModal(id);
 }
+// Call after any render that adds .film-row elements to the page. If a row's
+// content actually overflows its width, its children are cloned once and
+// appended right after themselves — so the row silently contains two
+// back-to-back copies. The auto-scroll loop below then wraps position at the
+// halfway point (single = scrollWidth/2), landing on pixel-identical content,
+// so reaching "the end" loops back to the start with no visible jump —
+// rows with too few items to overflow are left alone (no duplication).
+function primeFilmRows(root){
+  (root||document).querySelectorAll('.film-row').forEach(row=>{
+    if(row.dataset.primed) return;
+    // Rendered while its tab is inactive (loadAll() renders every tab up
+    // front), a row measures 0×0 — skip without marking primed so the
+    // tab-switch handler below gets a real shot at it once it's visible.
+    if(row.clientWidth === 0) return;
+    row.dataset.primed = '1';
+    if(row.scrollWidth > row.clientWidth){
+      const frag = document.createDocumentFragment();
+      Array.from(row.children).forEach(ch=>frag.appendChild(ch.cloneNode(true)));
+      row.appendChild(frag);
+    }
+  });
+}
 (function initFilmDrag(){
   // No setPointerCapture here on purpose: capturing the pointer on the row
   // retargets the subsequent 'click' event to the row too (not just pointer
@@ -818,20 +851,19 @@ function filmClick(id, mode){
   function tick(){
     document.querySelectorAll('.film-row').forEach(row=>{
       if(row === active) return;
-      const max = row.scrollWidth - row.clientWidth;
-      if(max <= 0) return;
-      let dir = row.dataset.dir === '-1' ? -1 : 1;
-      // Track position as a float separately from scrollLeft — scrollLeft
-      // rounds to whole pixels on read, which would throw away the < 1px
-      // increment every single frame and never actually move.
+      // Rows get doubled by primeFilmRows() when they overflow, so half the
+      // measured width is one full lap. A fixed per-row direction (set once
+      // at render time, never reversed) plus wrapping the position with
+      // modulo — instead of bouncing back at the edges — is what makes this
+      // an infinite loop instead of a ping-pong.
+      const single = row.scrollWidth / 2;
+      if(single <= row.clientWidth) return;
+      const dir = row.dataset.dir === '-1' ? -1 : 1;
       let pos = parseFloat(row.dataset.pos);
       if(Number.isNaN(pos)) pos = row.scrollLeft;
-      let next = pos + dir * FILM_SPEED;
-      if(next <= 0){ next = 0; dir = 1; }
-      else if(next >= max){ next = max; dir = -1; }
-      row.dataset.dir = String(dir);
-      row.dataset.pos = String(next);
-      row.scrollLeft = next;
+      pos = ((pos + dir * FILM_SPEED) % single + single) % single;
+      row.dataset.pos = String(pos);
+      row.scrollLeft = pos;
     });
     requestAnimationFrame(tick);
   }
@@ -906,6 +938,7 @@ function renderWardrobe(){
   }
   const shownCats = subFilter ? [subFilter] : cats;
   $('wardrobeBody').innerHTML = filmSectionsHTML(shownCats, byCat, false);
+  primeFilmRows($('wardrobeBody'));
 }
 function setSub(c){ subFilter = c; renderWardrobe(); }
 
@@ -1468,6 +1501,7 @@ function renderFit(){
       <div class="fit-col${topsCollapsed?' collapsed':''}">${fitColHTML('Top', tops, topsCollapsed, shortsPicked)}</div>
       <div class="fit-col${bottomsCollapsed?' collapsed':''}">${fitColHTML('Bottom', bottoms, bottomsCollapsed, false)}</div>
     </div>`;
+  primeFilmRows($('fitGrid'));
   renderFitPanel();
 }
 function toggleFit(id){
@@ -1505,13 +1539,28 @@ function openSaveFit(){
   if(!selectedFit.size) return;
   const chosen = ITEMS.filter(i=>selectedFit.has(i.id));
   $('fit_name').value = chosen.map(i=>i.color||i.name.split('—').pop().trim()).join(' + ');
+  const chosenIds = [...selectedFit].sort((a,b)=>a-b).join(',');
   $('fit_coll').innerHTML = '<option value="">— No collection —</option>' +
-    COLLECTIONS.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('');
+    COLLECTIONS.map(c=>{
+      const isDup = c.outfits.some(o => o.items.map(i=>i.id).sort((a,b)=>a-b).join(',') === chosenIds);
+      return `<option value="${c.id}"${isDup?' disabled':''}>${esc(c.name)}${isDup?' — already added':''}</option>`;
+    }).join('');
   $('fitModal').classList.add('open');
 }
 async function saveFit(){
+  const collId = $('fit_coll').value || null;
+  if(collId){
+    const coll = COLLECTIONS.find(c => String(c.id) === String(collId));
+    const chosenIds = [...selectedFit].sort((a,b)=>a-b).join(',');
+    const isDup = coll && coll.outfits.some(o =>
+      o.items.map(i=>i.id).sort((a,b)=>a-b).join(',') === chosenIds);
+    if(isDup){
+      alert(`This exact outfit is already in "${coll.name}" — pick a different collection or change the pieces.`);
+      return;
+    }
+  }
   await api('/api/outfits','POST',{
-    name:$('fit_name').value, collection_id:$('fit_coll').value||null, item_ids:[...selectedFit],
+    name:$('fit_name').value, collection_id:collId, item_ids:[...selectedFit],
   });
   closeModal('fitModal'); clearFit();
   COLLECTIONS = await api('/api/collections'); renderCollections();
@@ -1524,10 +1573,51 @@ function toggleColl(id){
   collapsedColls.has(id) ? collapsedColls.delete(id) : collapsedColls.add(id);
   renderCollections();
 }
+function filmOutfitHTML(o, collId){
+  return `<div class="film-item outfit-item" onclick="filmOutfitClick(${o.id},${collId})">
+    <button class="outfit-del" onclick="event.stopPropagation();delOutfit(${o.id})">✕</button>
+    ${outfitOwned(o)?'<span class="owned-check" title="You own this fit">✓</span>':'<span class="unowned-x" title="You don\'t own this fit yet">✕</span>'}
+    ${outfitThumbHTML(o)}
+    <span class="film-label">${esc(o.name||'Outfit')}</span>
+  </div>`;
+}
+function filmOutfitClick(outfitId, collId){
+  if(filmDragMoved) return;
+  viewOutfit(outfitId, collId);
+}
+let collDragId = null;
+function collDragStart(e, id){
+  collDragId = id;
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', String(id));
+}
+function collDragOver(e){
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  e.currentTarget.classList.add('drag-over');
+}
+function collDragLeave(e){
+  e.currentTarget.classList.remove('drag-over');
+}
+async function collDrop(e, targetId){
+  e.preventDefault();
+  e.currentTarget.classList.remove('drag-over');
+  const draggedId = collDragId;
+  collDragId = null;
+  if(draggedId == null || draggedId === targetId) return;
+  const order = COLLECTIONS.map(c=>c.id);
+  const from = order.indexOf(draggedId), to = order.indexOf(targetId);
+  if(from === -1 || to === -1) return;
+  order.splice(from, 1);
+  order.splice(to, 0, draggedId);
+  COLLECTIONS = order.map(id => COLLECTIONS.find(c=>c.id===id));
+  renderCollections();
+  await api('/api/collections/reorder', 'POST', {order});
+}
 function renderCollections(){
   $('collCount').textContent = COLLECTIONS.length ? `${COLLECTIONS.length}` : '';
   if(!COLLECTIONS.length){ $('collList').innerHTML='<div class="empty">No collections yet. Create one to group your favorite outfits.</div>'; return; }
-  $('collList').innerHTML = COLLECTIONS.map(c=>{
+  $('collList').innerHTML = COLLECTIONS.map((c, idx)=>{
     const t = tempLabel(c.temp_min, c.temp_max);
     const totalCount = c.outfits.length;
     const completeCount = c.outfits.filter(outfitOwned).length;
@@ -1538,17 +1628,14 @@ function renderCollections(){
           : `<div class="coll-progress">${completeCount}/${totalCount} complete</div>`)
       : '';
     const collapsed = collapsedColls.has(c.id);
-    const outfits = c.outfits.map(o=>`
-      <div class="outfit" onclick="viewOutfit(${o.id}, ${c.id})">
-        <button class="outfit-del" onclick="event.stopPropagation();delOutfit(${o.id})">✕</button>
-        ${outfitOwned(o)?'<span class="owned-check" title="You own this fit">✓</span>':'<span class="unowned-x" title="You don\'t own this fit yet">✕</span>'}
-        ${outfitThumbHTML(o)}
-        <div class="oname">${esc(o.name||'Outfit')}</div>
-      </div>`).join('');
-    return `<div class="coll">
+    const outfitsRow = c.outfits.length
+      ? `<div class="film-row" data-dir="${idx%2===0?'1':'-1'}">${c.outfits.map(o=>filmOutfitHTML(o,c.id)).join('')}</div>`
+      : `<div class="meta">No outfits yet — build one in Fit Maker.</div>`;
+    return `<div class="coll" ondragover="collDragOver(event)" ondragleave="collDragLeave(event)" ondrop="collDrop(event,${c.id})">
       <div class="coll-head">
         <div>
           <h3>
+            <span class="coll-grip" draggable="true" ondragstart="collDragStart(event,${c.id})" title="Drag to reorder">⠿</span>
             <button class="coll-toggle" onclick="toggleColl(${c.id})" title="${collapsed?'Expand':'Collapse'}">${collapsed?'▸':'▾'}</button>
             ${esc(c.name)} <span class="count-pill">${c.outfits.length} outfits</span>
           </h3>
@@ -1561,9 +1648,10 @@ function renderCollections(){
           <button class="link" onclick="delColl(${c.id})">Delete</button>
         </div>
       </div>
-      ${collapsed ? '' : `<div class="outfit-grid">${outfits || '<div class="meta">No outfits yet — build one in Fit Maker.</div>'}</div>`}
+      ${collapsed ? '' : outfitsRow}
     </div>`;
   }).join('');
+  primeFilmRows($('collList'));
   tightenAll($('collList'));
 }
 function openCollModal(id){
