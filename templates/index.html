@@ -1093,14 +1093,26 @@ async function proportionGroup(groupEl, availableStackHeight){
     const img = wrap.querySelector('img');
     if(img){
       const src = img.getAttribute('src') || '';
-      if(src.startsWith('data:image')){
-        if(!(img.complete && img.naturalWidth)){
-          await new Promise(res=>{
-            img.addEventListener('load', res, {once:true});
-            img.addEventListener('error', res, {once:true});
-          });
-        }
-        if(img.naturalWidth) imgData = { img, bounds: await contentBounds(src) };
+      if(!(img.complete && img.naturalWidth)){
+        await new Promise(res=>{
+          img.addEventListener('load', res, {once:true});
+          img.addEventListener('error', res, {once:true});
+        });
+      }
+      if(img.naturalWidth){
+        // Locally-processed photos (data: URIs) already went through
+        // imageproc.py's own trim step and get pixel-scanned here too for
+        // any residual transparent padding. A pasted external link (plain
+        // URL, stored as-is — see the f_image_link input) never goes
+        // through that pipeline, so there's no transparent padding to
+        // detect there; treat the whole photo as content instead of
+        // leaving it unsized. Leaving it unsized used to size its box from
+        // a generic guessed aspect ratio that didn't match the image's
+        // real one, leaving a mismatched gap next to it.
+        const bounds = src.startsWith('data:image')
+          ? await contentBounds(src)
+          : {top:0, bottom:1, left:0, right:1};
+        imgData = { img, bounds };
       }
     }
     layerInfos.push({ wrap, kind, imgData });
