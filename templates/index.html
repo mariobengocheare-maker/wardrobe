@@ -337,7 +337,20 @@
     display:flex; flex-direction:column; align-items:center; justify-content:center;
     background:radial-gradient(120% 90% at 50% 10%, #fffefb 0%, #f0eadd 62%, #e6decd 100%);}
   .ot-layer{width:68%; max-width:150px; margin:0 auto; position:relative;}
-  .ot-layer img{width:100%; display:block; filter:drop-shadow(0 6px 10px rgba(60,45,25,.16));}
+  /* height:auto (not the generic .film-item img{height:100%} it would
+     otherwise inherit, since .ot-layer lives inside .film-item.outfit-item)
+     is required here: proportionGroup()/placeLayer() size and position
+     these images entirely by setting an explicit pixel width and relying
+     on the browser to derive height from natural aspect ratio, then crop
+     via this wrap's overflow:hidden. A height:100% forces the box's own
+     aspect ratio to whatever proportionGroup picked for DISPLAY (which can
+     legitimately differ from the photo's raw aspect ratio, e.g. shorts
+     capped shorter than the top) instead of the photo's real one — object-fit
+     then has to squeeze the *entire* photo (including all its blank
+     product-photo padding) into that mismatched box, shrinking the actual
+     garment pixels far below the intended size. The lightbox's own
+     .ov-layer img never hit this because it lives outside .film-item.*/
+  .ot-layer img{width:100%; height:auto; display:block; filter:drop-shadow(0 6px 10px rgba(60,45,25,.16));}
   .ot-top{z-index:2;}
   .ot-bottom{margin-top:8px; z-index:1;}
   .ot-flat{width:100%; height:100%; border-radius:8px;}
@@ -1264,9 +1277,28 @@ $('f_image_file').addEventListener('change', e=>{
   };
   rd.readAsDataURL(f);
 });
+let _linkDebounce = null;
 $('f_image_link').addEventListener('input', e=>{
   const v = e.target.value.trim();
-  $('f_image_url').value = v; setPreview(v);   // pasted URLs are shown as-is
+  clearTimeout(_linkDebounce);
+  if(!v){ $('f_image_url').value=''; setPreview(''); return; }
+  setPreview(v);   // quick raw preview while the real processing runs
+  _linkDebounce = setTimeout(async ()=>{
+    $('f_preview').classList.add('busy');
+    $('f_img_hint').dataset.saved = $('f_img_hint').dataset.saved || $('f_img_hint').innerHTML;
+    $('f_img_hint').textContent = 'Fetching & cleaning up the photo…';
+    try{
+      const out = await processImage(v);
+      if($('f_image_link').value.trim() !== v) return;   // input changed again while this was in flight
+      $('f_image_url').value = out; setPreview(out);
+      $('f_img_hint').innerHTML = $('f_img_hint').dataset.saved;
+    }catch(err){
+      console.error('Photo processing failed:', err);
+      $('f_img_hint').innerHTML = '<span style="color:var(--gold)">⚠ Could not fetch/process that link — it will be saved as-is. Try a different URL or upload the photo instead.</span>';
+    }finally{
+      $('f_preview').classList.remove('busy');
+    }
+  }, 600);
 });
 function renderTempClassPicker(){
   const curMin = $('f_temp_min').value === '' ? null : Number($('f_temp_min').value);

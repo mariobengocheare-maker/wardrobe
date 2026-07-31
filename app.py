@@ -49,8 +49,8 @@ def _watchdog():
 # Bump these two together whenever a change is shipped, so it's obvious at
 # a glance which build is running. Always give the timestamp in Eastern
 # time (matches the same convention URTO's own version footer uses).
-APP_VERSION = "1.4.3"
-APP_VERSION_DATE = "Jul 30, 2026 8:59 PM EDT"
+APP_VERSION = "1.4.4"
+APP_VERSION_DATE = "Jul 30, 2026 9:35 PM EDT"
 
 
 @app.route("/")
@@ -85,15 +85,29 @@ def get_items():
     return jsonify(db.list_items())
 
 
+def _normalize_pasted_link(data):
+    """Standardize an image_url that's still a raw http(s) link server-side,
+    as a safety net for anything that reaches these routes without going
+    through the frontend's own /api/process-image call first (e.g. an item
+    saved before that existed, just resaved as-is)."""
+    url = (data.get("image_url") or "").strip()
+    if url.startswith("http://") or url.startswith("https://"):
+        try:
+            data["image_url"] = imageproc.standardize(url)
+        except Exception:
+            pass  # keep the raw link rather than block the save
+    return data
+
+
 @app.route("/api/items", methods=["POST"])
 def create_item():
-    new_id = db.add_item(request.get_json(force=True))
+    new_id = db.add_item(_normalize_pasted_link(request.get_json(force=True)))
     return jsonify({"id": new_id}), 201
 
 
 @app.route("/api/items/<int:item_id>", methods=["PUT"])
 def edit_item(item_id):
-    db.update_item(item_id, request.get_json(force=True))
+    db.update_item(item_id, _normalize_pasted_link(request.get_json(force=True)))
     return jsonify({"ok": True})
 
 

@@ -13,6 +13,7 @@ Background removal:
 
 import base64
 import io
+import urllib.request
 
 from PIL import Image, ImageDraw
 
@@ -94,12 +95,36 @@ def _data_url_to_image(data_url):
     return Image.open(io.BytesIO(base64.b64decode(b64)))
 
 
+def _fetch_remote_image(url, timeout=12):
+    # Product-photo sites tend to reject requests with no User-Agent.
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Wardrobe app)"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        data = resp.read()
+    return Image.open(io.BytesIO(data))
+
+
 def standardize(data_url, remove_bg=True):
     """Return a standardised transparent-PNG data URL, or the input unchanged
-    if it isn't a processable data URL."""
-    if not isinstance(data_url, str) or not data_url.startswith("data:image"):
+    if it isn't something we can fetch/decode.
+
+    Handles two sources the exact same way: an uploaded photo (data: URL)
+    and a pasted product-page image link (http/https URL). Both get
+    background removal and the same corner-to-corner content trim — a
+    pasted link used to be stored (and displayed) as-is, which meant a
+    typical product photo's white padding around the garment was treated
+    as if it were the garment itself, throwing off every place that sizes
+    a photo relative to its actual content (outfit thumbnails especially:
+    shorts, which are mostly padding in a tall product shot, rendered
+    tiny inside an oversized box).
+    """
+    if not isinstance(data_url, str):
         return data_url
-    img = _data_url_to_image(data_url)
+    if data_url.startswith("data:image"):
+        img = _data_url_to_image(data_url)
+    elif data_url.startswith("http://") or data_url.startswith("https://"):
+        img = _fetch_remote_image(data_url)
+    else:
+        return data_url
     img = _downscale(img)
     img = _remove_bg(img) if remove_bg else img.convert("RGBA")
     img = _trim_and_pad(img)
