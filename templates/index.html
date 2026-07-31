@@ -721,8 +721,16 @@ document.querySelectorAll('nav.tabs button').forEach(b=>{
     document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));
     b.classList.add('active');
     $('view-'+b.dataset.tab).classList.add('active');
-    if(b.dataset.tab==='collections') tightenAll($('collList'));
+    // Order matters: primeFilmRows() clones DOM nodes synchronously, while
+    // tightenAll()/proportionGroup() synchronously RESETS every layer's
+    // inline sizing before re-computing it asynchronously. Priming first
+    // (or after the async work has actually finished) is safe; priming
+    // between tightenAll's reset and its async re-apply would clone a
+    // briefly-blank intermediate state and bake it permanently into the
+    // clones — which is exactly what produced outfit tiles that rendered
+    // completely empty.
     primeFilmRows();
+    if(b.dataset.tab==='collections') tightenAll($('collList'));
   };
 });
 // --- Tops / Bottoms segmented ---
