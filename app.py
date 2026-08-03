@@ -7,13 +7,16 @@ Then open: http://localhost:5050
 import os
 import threading
 import time
+from datetime import datetime
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, render_template, request, send_from_directory
 
 import db
 import imageproc
+from easterntime import eastern_abbr
 
 app = Flask(__name__)
+HERE = os.path.dirname(os.path.abspath(__file__))
 
 # The desktop launcher starts this server detached, with no window — so
 # nothing closes it automatically when you're done. The frontend pings
@@ -46,21 +49,55 @@ def _watchdog():
             os._exit(0)
 
 
-# Bump these two together whenever a change is shipped, so it's obvious at
-# a glance which build is running. Always give the timestamp in Eastern
-# time (matches the same convention URTO's own version footer uses).
-APP_VERSION = "1.4.4"
-APP_VERSION_DATE = "Jul 30, 2026 9:35 PM EDT"
+# Bump this by hand whenever a change is shipped, so it's obvious at a
+# glance which build is running. The date shown next to it in the footer is
+# NOT typed by hand (that drifted out of sync with reality often enough to
+# be worth fixing) — it's read from install_time.txt, a marker file the
+# Wardrobe Updater writes with the real local clock time the instant it
+# finishes installing. See _install_time() below for the fallback chain.
+APP_VERSION = "1.4.5"
+
+INSTALL_TIME_MARKER = os.path.join(HERE, "install_time.txt")
+
+
+def _install_time():
+    """When this copy of the app was actually installed, as a naive local
+    datetime (the machine's own clock — this app assumes it's set to US
+    Eastern, per easterntime.py). Prefers the Updater's marker file (the
+    real moment the user's own PC clock installed it); falls back to this
+    file's own last-modified time for the bootstrap case (first-ever manual
+    ZIP install, before the Updater exists on their machine yet, so no
+    marker has been written); falls back to right now if even that fails."""
+    try:
+        with open(INSTALL_TIME_MARKER, encoding="utf-8") as f:
+            return datetime.fromisoformat(f.read().strip())
+    except Exception:
+        pass
+    try:
+        return datetime.fromtimestamp(os.path.getmtime(__file__))
+    except Exception:
+        return datetime.now()
+
+
+def _format_install_time(dt):
+    hour12 = dt.strftime("%I").lstrip("0") or "12"  # %-I isn't supported on Windows
+    return dt.strftime(f"%b %d, %Y {hour12}:%M %p") + f" {eastern_abbr(dt)} (Miami Time)"
 
 
 @app.route("/")
 def index():
-    return render_template("index.html", app_version=APP_VERSION, app_version_date=APP_VERSION_DATE)
+    app_version_date = _format_install_time(_install_time())
+    return render_template("index.html", app_version=APP_VERSION, app_version_date=app_version_date)
 
 
 @app.route("/api/version", methods=["GET"])
 def version():
     return jsonify({"version": APP_VERSION})
+
+
+@app.route("/favicon.ico")
+def favicon():
+    return send_from_directory(HERE, "wardrobe.ico", mimetype="image/vnd.microsoft.icon")
 
 
 # --- Image standardisation ----------------------------------------------

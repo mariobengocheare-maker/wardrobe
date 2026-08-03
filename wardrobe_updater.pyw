@@ -30,6 +30,7 @@ import time
 import tkinter as tk
 import urllib.request
 import zipfile
+from datetime import datetime
 from pathlib import Path
 
 REPO_ZIP_URL = "https://codeload.github.com/mariobengocheare-maker/wardrobe/zip/refs/heads/claude/wardrobe-v1-code-66xtsm"
@@ -126,6 +127,16 @@ def install_update(log, source_dir: Path):
             shutil.copy2(item, dest)
 
 
+def record_install_time(log):
+    # Written fresh on every successful update with THIS PC's own clock —
+    # app.py's version footer reads it back instead of a hand-typed
+    # timestamp, which used to drift out of sync with reality.
+    try:
+        (INSTALL_DIR / "install_time.txt").write_text(datetime.now().isoformat(), encoding="utf-8")
+    except Exception:
+        pass  # footer just falls back to app.py's own file time; never block the update over this
+
+
 def install_requirements(log):
     # Best-effort: only matters if a future version adds a new dependency.
     # Never blocks the update if pip isn't reachable or errors out.
@@ -151,6 +162,7 @@ def run_update(log) -> bool:
             install_update(log, source_dir)
         # TemporaryDirectory cleans up the zip/extracted files on exit —
         # nothing left behind to manage by hand.
+        record_install_time(log)
         install_requirements(log)
         log("")
         log("Done! Wardrobe is up to date.")

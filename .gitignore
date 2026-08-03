@@ -1,6 +1,10 @@
 # Your saved wardrobe data — stays on your PC, never committed
 wardrobe.db
 
+# Written by wardrobe_updater.pyw with the real local-clock moment of the
+# last update install — machine-specific, never committed
+install_time.txt
+
 __pycache__/
 *.pyc
 
