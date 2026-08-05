@@ -274,41 +274,34 @@
   .empty{color:var(--muted); text-align:center; padding:70px 0; font-size:15px;}
 
   /* ---------- fit maker ---------- */
-  .fit-wrap{display:grid; grid-template-columns:1fr 360px; gap:28px;}
-  .fit-main{min-width:0;} /* grid items default to min-width:auto — without this,
-    a film-row's full (pre-scroll) content width can force the 1fr track wider
+  /* Tops | live preview | Bottoms — a stable three-way split instead of the
+     old two-column-plus-collapse dance, so both sides stay put and the
+     built-up look is always visible, not just on request. */
+  .fit-wrap{display:grid; grid-template-columns:1fr 340px 1fr; gap:24px; align-items:start;}
+  .fit-side{min-width:0;} /* grid items default to min-width:auto — without this,
+    a film-row's full (pre-scroll) content width can force its track wider
     than intended once a row's content is duplicated for seamless looping. */
-  @media(max-width:900px){.fit-wrap{grid-template-columns:1fr;}}
+  @media(max-width:1100px){.fit-wrap{grid-template-columns:1fr;} .fit-preview-panel{position:static;}}
   .pick-card{cursor:pointer;}
   .pick-card.sel{outline:3px solid var(--gold); outline-offset:2px;}
   .pick-card.sel .check{display:flex;}
   .pick-card .photo-wrap{cursor:pointer;}
-  .fit-panel{
+  .fit-preview-panel{
     background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
-    box-shadow:var(--shadow-sm); padding:24px; position:sticky; top:20px; align-self:start;
+    box-shadow:var(--shadow-sm); padding:20px; position:sticky; top:20px;
   }
-  .fit-panel h3{margin:0 0 4px; font-size:24px;}
-  .fit-strip{display:flex; flex-wrap:wrap; gap:10px; margin:18px 0;}
-  .chip{display:flex; align-items:center; gap:8px; background:#fff; border:1px solid var(--line); border-radius:999px; padding:6px 13px 6px 7px; font-size:13px;}
-  .chip .dot{width:16px; height:16px; border-radius:50%; border:1px solid rgba(0,0,0,.15); background-size:cover; background-position:center;}
+  .fit-preview-stage{
+    min-height:420px; border-radius:14px; padding:20px 14px; margin-bottom:14px;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    background:radial-gradient(120% 70% at 50% 8%, #fffefb 0%, #f0eadd 60%, #e6decd 100%);
+  }
   .fit-temp-big{font-size:15px; margin:12px 0 4px; line-height:1.5;}
   .fit-temp-big b{color:var(--gold);}
   .fit-actions{display:flex; gap:10px; margin-top:20px; flex-wrap:wrap;}
 
-  /* ---------- fit maker: tops/bottoms columns ---------- */
-  .fit-columns{display:flex; gap:22px; align-items:flex-start;}
-  .fit-col{flex:1 1 0; min-width:0; transition:flex .3s ease;}
-  .fit-col.collapsed{flex:0 0 210px;}
+  /* ---------- fit maker: tops/bottoms side columns ---------- */
   .fit-col-head{display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:14px; padding-bottom:9px; border-bottom:1px solid var(--line);}
   .fit-col-head h4{margin:0; font-size:19px; font-family:"Didot","Bodoni MT",Georgia,serif;}
-  .fit-col-head.collapsed-head{cursor:pointer;}
-  .fit-col-head.collapsed-head:hover h4{color:var(--gold);}
-  .fit-col-hint{font-size:11px; color:var(--muted); letter-spacing:.08em; text-transform:uppercase;}
-  .fit-col-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:16px;}
-  .fit-col.collapsed .fit-col-grid{display:none;}
-  .fit-col-collapsed-strip{display:flex; flex-wrap:wrap; gap:8px;}
-  .mini-chip{width:46px; height:56px; border-radius:9px; border:1px solid var(--line); background-color:#f1ece1; background-size:cover; background-position:center; box-shadow:var(--shadow-sm);}
-  @media(max-width:760px){.fit-columns{flex-direction:column;} .fit-col.collapsed{flex:0 0 auto;}}
 
   /* ---------- collections ---------- */
   .coll{background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow-sm); padding:26px 28px; margin-bottom:26px;}
@@ -466,22 +459,20 @@
     <div class="section-head">
       <div><div class="kick">Build a look</div><h2>Fit Maker</h2></div>
     </div>
+    <p class="meta" style="margin-bottom:18px">Tap a top, then a bottom — the look builds live in the middle as you go.</p>
     <div class="fit-wrap">
-      <div class="fit-main">
-        <p class="meta" style="margin-bottom:18px">Tap a top, then a bottom, to build a look. See how they come together and how warm the whole fit runs.</p>
-        <div id="fitGrid"></div>
-      </div>
-      <aside class="fit-panel">
-        <h3>Your Fit</h3>
-        <p class="meta" id="fitEmpty">Nothing selected yet.</p>
-        <div class="fit-strip" id="fitStrip"></div>
+      <div class="fit-side" id="fitTopsCol"></div>
+      <aside class="fit-preview-panel">
+        <div class="fit-preview-stage" id="fitPreviewStage">
+          <p class="meta" id="fitEmpty">Tap a top and a bottom to preview the fit.</p>
+        </div>
         <div id="fitTemp"></div>
         <div class="fit-actions">
-          <button class="btn gold" id="previewFitBtn" onclick="previewFit()" style="display:none">Preview Outfit</button>
           <button class="btn" id="saveFitBtn" onclick="openSaveFit()" style="display:none">Save Outfit</button>
           <button class="link" id="clearFitBtn" onclick="clearFit()" style="display:none">Clear</button>
         </div>
       </aside>
+      <div class="fit-side" id="fitBottomsCol"></div>
     </div>
   </section>
 </main>
@@ -686,7 +677,6 @@ function priceNoteKey(brand, category){ return (brand||'') + '|' + (category||''
 const selectedFit = new Set();
 let wardrobeType = 'Top';   // Tops | Bottoms
 let subFilter = null;       // active category filter within a type
-let fitFocus = null;        // 'Top' | 'Bottom' | null — which fit-maker column is collapsed
 
 const $ = id => document.getElementById(id);
 async function api(url, method='GET', body){
@@ -1233,7 +1223,6 @@ function outfitThumbHTML(o){
   };
   return `<div class="outfit-thumb">${layer(top,'ot-top')}${layer(bottom,'ot-bottom')}</div>`;
 }
-function previewFit(){ const c = ITEMS.filter(i=>selectedFit.has(i.id)); if(c.length) openOutfitView(c, c.map(i=>i.color||i.name).join(' + ')); }
 function viewOutfit(outfitId, collId){
   const coll = COLLECTIONS.find(c=>c.id===collId);
   const o = coll && coll.outfits.find(x=>x.id===outfitId);
@@ -1532,20 +1521,10 @@ async function delItem(id){
 }
 
 // --- fit maker ---
-function fitColHTML(type, items, collapsed, prioritizePolo){
+function fitColHTML(type, items, prioritizePolo){
   const label = type==='Top' ? 'Tops' : 'Bottoms';
   if(!items.length){
     return `<div class="fit-col-head"><h4>${label}</h4></div><div class="empty" style="padding:30px 0">No ${label.toLowerCase()} yet.</div>`;
-  }
-  if(collapsed){
-    const chosen = items.filter(i=>selectedFit.has(i.id));
-    return `<div class="fit-col-head collapsed-head" onclick="expandFit()">
-        <h4>${label}</h4><span class="fit-col-hint">${chosen.length ? 'Change' : 'Expand'}</span>
-      </div>
-      <div class="fit-col-collapsed-strip">${
-        chosen.length ? chosen.map(i=>`<div class="mini-chip" style="${swatchStyle(i)}" title="${esc(i.name)}"></div>`).join('')
-        : '<div class="meta" style="font-size:12px">None picked</div>'
-      }</div>`;
   }
   // Group by category into stacked filmstrip rows — same bare-photo,
   // slow-drifting browsing pattern as My Wardrobe, one row per sub-type.
@@ -1557,41 +1536,51 @@ function fitColHTML(type, items, collapsed, prioritizePolo){
 }
 const POLO_RE = /polo/i;
 function renderFit(){
-  if(!ITEMS.length){ $('fitGrid').innerHTML='<div class="empty">Add pieces to your wardrobe first.</div>'; return; }
+  if(!ITEMS.length){
+    $('fitTopsCol').innerHTML = '<div class="empty">Add pieces to your wardrobe first.</div>';
+    $('fitBottomsCol').innerHTML = '';
+    renderFitPreview();
+    return;
+  }
   const tops = ITEMS.filter(i=>typeOf(i)==='Top');
   const bottoms = ITEMS.filter(i=>typeOf(i)==='Bottom');
   // Shorts read as more casual — once one's picked, surface polo categories
   // first among the tops so the natural pairing is right there, not buried.
   const shortsPicked = bottoms.some(i => selectedFit.has(i.id) && isShorts(i));
-  const topsCollapsed = fitFocus === 'Top';
-  const bottomsCollapsed = fitFocus === 'Bottom';
-  $('fitGrid').innerHTML = `
-    <div class="fit-columns">
-      <div class="fit-col${topsCollapsed?' collapsed':''}">${fitColHTML('Top', tops, topsCollapsed, shortsPicked)}</div>
-      <div class="fit-col${bottomsCollapsed?' collapsed':''}">${fitColHTML('Bottom', bottoms, bottomsCollapsed, false)}</div>
-    </div>`;
-  primeFilmRows($('fitGrid'));
-  renderFitPanel();
+  $('fitTopsCol').innerHTML = fitColHTML('Top', tops, shortsPicked);
+  $('fitBottomsCol').innerHTML = fitColHTML('Bottom', bottoms, false);
+  primeFilmRows($('fitTopsCol'));
+  primeFilmRows($('fitBottomsCol'));
+  renderFitPreview();
 }
 function toggleFit(id){
   const i = ITEMS.find(x=>x.id===id);
-  selectedFit.has(id) ? selectedFit.delete(id) : selectedFit.add(id);
-  fitFocus = typeOf(i);   // collapse the column just picked from, expand the other
+  const type = typeOf(i);
+  if(selectedFit.has(id)){
+    selectedFit.delete(id);
+  } else {
+    // Only one top and one bottom at a time — picking a new piece replaces
+    // whichever one of the same type was already selected, rather than
+    // piling up multiple tops or multiple bottoms at once.
+    ITEMS.forEach(o => { if(typeOf(o)===type) selectedFit.delete(o.id); });
+    selectedFit.add(id);
+  }
   renderFit();
 }
-function expandFit(){ fitFocus = null; renderFit(); }
-function clearFit(){ selectedFit.clear(); fitFocus = null; renderFit(); }
-function swatchStyle(i){
-  return i.image_url ? `background-image:url('${esc(i.image_url)}')` : `background:${i.color_hex||'#ddd'}`;
-}
-function renderFitPanel(){
+function clearFit(){ selectedFit.clear(); renderFit(); }
+function renderFitPreview(){
   const chosen = ITEMS.filter(i=>selectedFit.has(i.id));
-  $('fitEmpty').style.display = chosen.length?'none':'block';
-  $('previewFitBtn').style.display = chosen.length?'inline-block':'none';
+  const stage = $('fitPreviewStage');
+  if(!chosen.length){
+    stage.innerHTML = '<p class="meta" id="fitEmpty">Tap a top and a bottom to preview the fit.</p>';
+  } else {
+    const tops = chosen.filter(i=>typeOf(i)==='Top');
+    const bottoms = chosen.filter(i=>typeOf(i)==='Bottom');
+    stage.innerHTML = [...tops.map(i=>ovLayer(i,'top')), ...bottoms.map(i=>ovLayer(i,'bottom'))].join('');
+    tightenAll(stage);
+  }
   $('saveFitBtn').style.display = chosen.length?'inline-block':'none';
   $('clearFitBtn').style.display = chosen.length?'inline-block':'none';
-  $('fitStrip').innerHTML = chosen.map(i=>
-    `<span class="chip"><span class="dot" style="${swatchStyle(i)}"></span>${esc(i.name)}</span>`).join('');
   const lows = chosen.map(i=>i.temp_min).filter(v=>v!=null);
   const highs = chosen.map(i=>i.temp_max).filter(v=>v!=null);
   let html='';

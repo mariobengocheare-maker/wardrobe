@@ -55,7 +55,7 @@ def _watchdog():
 # be worth fixing) — it's read from install_time.txt, a marker file the
 # Wardrobe Updater writes with the real local clock time the instant it
 # finishes installing. See _install_time() below for the fallback chain.
-APP_VERSION = "1.4.5"
+APP_VERSION = "1.4.6"
 
 INSTALL_TIME_MARKER = os.path.join(HERE, "install_time.txt")
 
